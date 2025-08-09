@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from sqlalchemy import text, inspect
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
 from core.config import Config
 from core.extensions import db, jwt, swagger, cors, bcrypt
@@ -178,5 +179,25 @@ def login():
     }), 200
 
 
+@app.route("/view_db")
+def view_db():
+    try:
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        db_data = {}
+
+        for table in tables:
+            result = db.session.execute(text(f"SELECT * FROM `{table}`"))
+            rows = [dict(row._mapping) for row in result]
+            db_data[table] = rows
+
+        return jsonify(db_data)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+    
+
 if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+
     app.run(debug=True)
