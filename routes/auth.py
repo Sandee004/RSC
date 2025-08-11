@@ -1,7 +1,7 @@
 from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, random, string
 from core.config import Config
 from core.extensions import db, bcrypt
-from core.models import User
+from models.userModel import User
 auth_bp = Blueprint('auth', __name__)
 
 
