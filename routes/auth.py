@@ -356,6 +356,37 @@ def update_profile_details():
     }), 200
 
 
+@auth_bp.route('/api/user/kyc-status', methods=['GET'])
+@jwt_required()
+def get_kyc_status():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    user_data = {
+        "id": user.id,
+        "kyc_status": user.kyc_status,
+    }
+    return jsonify(user_data), 200
+
+
+@auth_bp.route('/api/user/kyc', methods=['POST'])
+@jwt_required()
+def seubmit_kyc_documents():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    user_data = {
+        "id": user.id,
+    }
+    return jsonify(user_data), 200
+
+
 @auth_bp.route('/api/referrals', methods=['GET'])
 @jwt_required()
 def referral_stat():
