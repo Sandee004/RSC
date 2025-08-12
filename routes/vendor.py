@@ -1,9 +1,19 @@
-from flask import request, Blueprint, jsonify
+from flask import request, Blueprint, jsonify, requests
 from core.extensions import db
 from models.vendorModels import Store, Product
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 vendor_bp = Blueprint('vendor', __name__)
+
+def get_location_from_ip(ip):
+    try:
+        res = requests.get(f"http://ip-api.com/json/{ip}")
+        data = res.json()
+        if data.get("status") == "success":
+            return data["lat"], data["lon"]
+    except Exception:
+        return None, None
+    return None, None
 
 @vendor_bp.route('/api/vendor/storefront', methods=["POST"])
 @jwt_required()
@@ -57,18 +67,25 @@ def set_store_info():
     store_name = request.json.get('store_name')
     store_description = request.json.get('store_description')
 
-    store_details = Store.query.filter_by(vendor_id=vendor_id).first()
+    ip = request.remote_addr
+    latitude, longitude = get_location_from_ip(ip)
 
+    store_details = Store.query.filter_by(vendor_id=vendor_id).first()
     if store_details:
         store_details.store_name = store_name
         store_details.store_description = store_description
+        if latitude and longitude:
+            store_details.latitude = latitude
+            store_details.longitude = longitude
     else:
         slug = store_name.lower().replace(" ", "-")
         store_details = Store(
             vendor_id=vendor_id,
             store_name=store_name,
             store_description=store_description,
-            slug=slug
+            slug=slug,
+            latitude=latitude,
+            longitude=longitude
         )
         db.session.add(store_details)
 
