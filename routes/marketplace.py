@@ -1,23 +1,37 @@
-from core.imports import Blueprint, jsonify, request
+from core.imports import Blueprint, jsonify, request, requests
 from models.vendorModels import Product, Store
 from sqlalchemy import or_
-from routes.vendor import get_location_from_ip
+from routes.vendor import geocode_location
+from math import radians, cos, sin, asin, sqrt
 
 marketplace_bp = Blueprint('marketplace', __name__)
 
-from math import radians, cos, sin, asin, sqrt
+def get_location_from_ip(ip):
+    """
+    Get approximate latitude & longitude from an IP address using ip-api.com.
+    Returns (latitude, longitude) or (None, None) if lookup fails.
+    """
+    try:
+        url = f"http://ip-api.com/json/{ip}"
+        res = requests.get(url, timeout=5)
+        data = res.json()
+        if data.get("status") == "success":
+            return float(data.get("lat")), float(data.get("lon"))
+    except Exception as e:
+        print("IP Geolocation error:", e)
+    return None, None
+
 
 def haversine(lat1, lon1, lat2, lon2):
     """
-    Calculate the great circle distance between two points 
-    on the earth (specified in decimal degrees)
+    Calculate the great-circle distance between two points on the Earth.
+    All args are in decimal degrees.
     Returns distance in kilometers.
     """
     R = 6371
 
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
 
-    # Differences
     dlat = lat2 - lat1
     dlon = lon2 - lon1
 
@@ -189,51 +203,55 @@ def get_products_nearby():
       - Marketplace
     summary: Retrieve products from stores near the user's location
     description: >
-      This endpoint detects the user's approximate location automatically using their IP address
-      and returns products from stores within a specified radius in kilometers.
-      The search radius defaults to 10 km if not provided.
+      This endpoint detects the user's location via their IP address, unless
+      location parameters are provided (country, state, city, optional bus stop),
+      in which case it uses geocoding to determine coordinates.
     parameters:
+      - name: country
+        in: query
+        required: false
+        type: string
+      - name: state
+        in: query
+        required: false
+        type: string
+      - name: city
+        in: query
+        required: false
+        type: string
+      - name: bus_stop
+        in: query
+        required: false
+        type: string
       - name: radius
         in: query
         required: false
         type: number
         default: 10
-        example: 5
         description: Search radius in kilometers
     responses:
       200:
         description: List of nearby products sorted by proximity
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              product_id:
-                type: integer
-                example: 1
-              name:
-                type: string
-                example: Premium Coffee Beans
-              price:
-                type: number
-                example: 19.99
-              store_name:
-                type: string
-                example: My Awesome Store
-              distance_km:
-                type: number
-                example: 2.35
-      400:
-        description: Location could not be determined
     """
-    ip = request.remote_addr
-    latitude, longitude = get_location_from_ip(ip)
+    radius = float(request.args.get("radius", 10))
+
+    country = request.args.get("country")
+    state = request.args.get("state")
+    city = request.args.get("city")
+    bus_stop = request.args.get("bus_stop")
+
+    if all([country, state, city]):
+        # Use geocoding
+        latitude, longitude = geocode_location(country, state, city, bus_stop)
+    else:
+        # Use IP-based location
+        ip = request.remote_addr
+        latitude, longitude = get_location_from_ip(ip)
 
     if not latitude or not longitude:
         return jsonify({"message": "Could not determine location"}), 400
 
-    radius = float(request.args.get('radius', 10))
-
+    # Query stores with coordinates
     stores = Store.query.filter(Store.latitude.isnot(None), Store.longitude.isnot(None)).all()
 
     nearby_products = []

@@ -5,14 +5,26 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 vendor_bp = Blueprint('vendor', __name__)
 
-def get_location_from_ip(ip):
+
+def geocode_location(country, state, city, bus_stop=None):
+    """
+    Convert human-readable location into latitude & longitude using OSM Nominatim.
+    """
     try:
-        res = requests.get(f"http://ip-api.com/json/{ip}")
+        location_str = ", ".join(filter(None, [bus_stop, city, state, country]))
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {
+            "q": location_str,
+            "format": "json",
+            "limit": 1
+        }
+        headers = {"User-Agent": "YourAppName/1.0"}
+        res = requests.get(url, params=params, headers=headers)
         data = res.json()
-        if data.get("status") == "success":
-            return data["lat"], data["lon"]
-    except Exception:
-        return None, None
+        if data:
+            return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception as e:
+        print("Geocoding error:", e)
     return None, None
 
 @vendor_bp.route('/api/vendor/storefront', methods=["POST"])
@@ -25,9 +37,9 @@ def set_store_info():
       - Vendor
     summary: Create or update a store for the logged-in vendor
     description: >
-      This endpoint creates a new store or updates the store information 
-      linked to the authenticated vendor.  
-      The vendor is determined from the JWT token.
+      Creates a new store or updates the store information linked to the authenticated vendor.  
+      Vendors provide their location using human-readable details (country, state, city, bus stop),  
+      and the backend automatically converts this into coordinates for "nearby stores" searches.
     security:
       - Bearer: []
     consumes:
@@ -36,12 +48,15 @@ def set_store_info():
       - in: body
         name: body
         required: true
-        description: Store details
+        description: Store details and location
         schema:
           type: object
           required:
             - store_name
             - store_description
+            - country
+            - state
+            - city
           properties:
             store_name:
               type: string
@@ -49,6 +64,18 @@ def set_store_info():
             store_description:
               type: string
               example: We sell awesome products.
+            country:
+              type: string
+              example: Nigeria
+            state:
+              type: string
+              example: Lagos
+            city:
+              type: string
+              example: Ikeja
+            bus_stop:
+              type: string
+              example: Allen Avenue
     responses:
       200:
         description: Store details updated successfully
@@ -64,19 +91,31 @@ def set_store_info():
         description: Missing required fields
     """
     vendor_id = get_jwt_identity()
-    store_name = request.json.get('store_name')
-    store_description = request.json.get('store_description')
+    data = request.get_json()
 
-    ip = request.remote_addr
-    latitude, longitude = get_location_from_ip(ip)
+    store_name = data.get('store_name')
+    store_description = data.get('store_description')
+    country = data.get('country')
+    state = data.get('state')
+    city = data.get('city')
+    bus_stop = data.get('bus_stop')
+
+    # Basic validation
+    if not all([store_name, store_description, country, state, city]):
+        return jsonify({"message": "Missing required store or location fields"}), 400
+
+    latitude, longitude = geocode_location(country, state, city, bus_stop)
 
     store_details = Store.query.filter_by(vendor_id=vendor_id).first()
     if store_details:
         store_details.store_name = store_name
         store_details.store_description = store_description
-        if latitude and longitude:
-            store_details.latitude = latitude
-            store_details.longitude = longitude
+        store_details.country = country
+        store_details.state = state
+        store_details.city = city
+        store_details.bus_stop = bus_stop
+        store_details.latitude = latitude
+        store_details.longitude = longitude
     else:
         slug = store_name.lower().replace(" ", "-")
         store_details = Store(
@@ -84,6 +123,10 @@ def set_store_info():
             store_name=store_name,
             store_description=store_description,
             slug=slug,
+            country=country,
+            state=state,
+            city=city,
+            bus_stop=bus_stop,
             latitude=latitude,
             longitude=longitude
         )
@@ -137,8 +180,14 @@ def get_store_info(slug):
     return jsonify({
         "store_name": store_details.store_name,
         "store_description": store_details.store_description,
-        "contact_email": store_details.admin_email
+        "country": store_details.country,
+        "state": store_details.state,
+        "city": store_details.city,
+        "bus_stop": store_details.bus_stop,
+        "latitude": store_details.latitude,
+        "longitude": store_details.longitude
     }), 200
+
 
 
 @vendor_bp.route('/api/vendor/products', methods=['POST'])

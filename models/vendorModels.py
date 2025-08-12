@@ -9,6 +9,15 @@ class Store(db.Model):
     store_description = db.Column(db.Text, nullable=True)
     slug = db.Column(db.String(255), unique=True, nullable=False)
 
+    country = db.Column(db.String(100), nullable=False)
+    state = db.Column(db.String(100), nullable=False)
+    city = db.Column(db.String(100), nullable=False)
+    bus_stop = db.Column(db.String(255), nullable=True)
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
+
+    products = db.relationship('Product', backref='store', lazy=True)
+
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
