@@ -1,6 +1,6 @@
 from core.imports import jsonify, text, inspect, Flask
 from core.config import Config
-from core.extensions import db, jwt, swagger, cors, bcrypt
+from core.extensions import db, jwt, swagger, cors, bcrypt, migrate
 from routes.auth import auth_bp
 
 def create_app():
@@ -12,6 +12,7 @@ def create_app():
     swagger.init_app(app)
     cors.init_app(app)
     bcrypt.init_app(app)
+    migrate.init_app(app, db)
 
     app.register_blueprint(auth_bp)
 

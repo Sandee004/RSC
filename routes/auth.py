@@ -1,7 +1,9 @@
-from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, random, string
+from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, random, string, cloudinary, os, load_dotenv
 from core.config import Config
 from core.extensions import db, bcrypt
 from models.userModel import User
+load_dotenv() 
+
 auth_bp = Blueprint('auth', __name__)
 
 
@@ -340,7 +342,7 @@ def update_profile_details():
         updated = True
 
     if not updated:
-        return jsonify({"message": "No fields were updated"}), 200
+        return jsonify({"message": "No fields were updated"}), 204
 
     db.session.commit()
 
@@ -359,6 +361,36 @@ def update_profile_details():
 @auth_bp.route('/api/user/kyc-status', methods=['GET'])
 @jwt_required()
 def get_kyc_status():
+    """
+    Get KYC Verification Status
+    ---
+    tags:
+      - User
+    summary: Retrieve the authenticated user's KYC status
+    description: Returns the current KYC verification status for the logged-in user.
+    responses:
+      200:
+        description: Successfully retrieved the user's KYC status
+        schema:
+          type: object
+          properties:
+            id:
+              type: integer
+              example: 123
+            kyc_status:
+              type: string
+              example: "verified"
+      404:
+        description: User not found
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: User not found
+    security:
+      - Bearer: []
+    """
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
 
@@ -374,17 +406,95 @@ def get_kyc_status():
 
 @auth_bp.route('/api/user/kyc', methods=['POST'])
 @jwt_required()
-def seubmit_kyc_documents():
+def submit_kyc_documents():
+    """
+    Submit KYC Documents
+    ---
+    tags:
+      - User
+    summary: Upload and submit KYC documents for verification
+    description: |
+      Allows the authenticated user to upload KYC documents such as ID card, passport, or proof of address.
+      Files are uploaded to Cloudinary, and the returned URLs are stored with the user's KYC status.
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: id_document
+        type: file
+        required: true
+        description: Government-issued ID (passport, driver’s license, national ID)
+      - in: formData
+        name: proof_of_address
+        type: file
+        required: false
+        description: Document proving address (utility bill, bank statement)
+    responses:
+      200:
+        description: KYC documents uploaded successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: KYC documents submitted successfully
+            kyc_status:
+              type: string
+              example: pending
+            uploaded_files:
+              type: object
+              properties:
+                id_document_url:
+                  type: string
+                  example: "https://res.cloudinary.com/demo/image/upload/v1690000000/id_card.jpg"
+                proof_of_address_url:
+                  type: string
+                  example: "https://res.cloudinary.com/demo/image/upload/v1690000000/proof_address.jpg"
+      400:
+        description: Missing required file
+      404:
+        description: User not found
+    security:
+      - Bearer: []
+    """
     current_user_id = get_jwt_identity()
     user = User.query.get(current_user_id)
 
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    user_data = {
-        "id": user.id,
-    }
-    return jsonify(user_data), 200
+    id_document = request.files.get('id_document')
+    proof_of_address = request.files.get('proof_of_address')
+
+    if not id_document:
+        return jsonify({"error": "ID document is required"}), 400
+    
+    if not proof_of_address:
+      return jsonify({"error": "Proof of address is needed"}), 400
+
+    uploaded_files = {}
+
+    try:
+        id_upload = cloudinary.uploader.upload(id_document, folder="kyc_documents")
+        uploaded_files["id_document_url"] = id_upload.get("secure_url")
+
+        proof_upload = cloudinary.uploader.upload(proof_of_address, folder="kyc_documents")
+        uploaded_files["proof_of_address_url"] = proof_upload.get("secure_url")
+
+        user.kyc_status = "pending"
+        user.id_document_url = uploaded_files.get("id_document_url")
+        user.proof_of_address_url = uploaded_files.get("proof_of_address_url")
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "KYC documents submitted successfully",
+            "kyc_status": user.kyc_status,
+            "uploaded_files": uploaded_files
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
 @auth_bp.route('/api/referrals', methods=['GET'])
