@@ -15,8 +15,8 @@ def create_new_order():
       - Orders
     summary: Place a new order
     description: >
-      Allows an authenticated customer to create a new order for products from a single store.
-      Multiple products from the same store can be included in one order.
+      Allows an authenticated customer to create one or more orders for products.
+      Each product will create a separate order entry since orders store a single product.
     parameters:
       - in: body
         name: body
@@ -24,13 +24,9 @@ def create_new_order():
         schema:
           type: object
           required:
-            - store_id
             - items
+            - delivery_address
           properties:
-            store_id:
-              type: integer
-              example: 1
-              description: ID of the store
             items:
               type: array
               description: List of products with quantities
@@ -43,40 +39,53 @@ def create_new_order():
                   quantity:
                     type: integer
                     example: 2
+            delivery_address:
+              type: string
+              example: "123 Main Street, Ikeja, Lagos, Nigeria"
     responses:
       201:
-        description: Order created successfully
+        description: Orders created successfully
       400:
         description: Invalid input
     """
-    user_id = get_jwt_identity()
+    buyer_id = get_jwt_identity()
     data = request.get_json()
 
-    store_id = data.get('store_id')
     items = data.get('items')
+    delivery_address = data.get('delivery_address')
 
-    if not store_id or not items:
-        return jsonify({"message": "store_id and items are required"}), 400
+    if not items or not delivery_address:
+        return jsonify({"message": "items and delivery_address are required"}), 400
 
-    total_amount = 0
+    created_orders = []
+
     for item in items:
-        product = Product.query.filter_by(id=item['product_id'], store_id=store_id).first()
+        product = Product.query.filter_by(id=item['product_id']).first()
         if not product:
-            return jsonify({"message": f"Product {item['product_id']} not found in store {store_id}"}), 400
-        total_amount += float(product.price) * item['quantity']
+            return jsonify({"message": f"Product {item['product_id']} not found"}), 400
 
-    order = Order(
-        customer_id=user_id,
-        store_id=store_id,
-        total_amount=total_amount
-    )
-    db.session.add(order)
+        quantity = item.get('quantity', 1)
+        total_price = float(product.price) * quantity
+
+        order = Order(
+            buyer_id=buyer_id,
+            product_id=product.id,
+            quantity=quantity,
+            total_price=total_price,
+            delivery_address=delivery_address
+        )
+        db.session.add(order)
+        created_orders.append(order)
+
     db.session.commit()
 
-    return jsonify({"message": "Order created successfully", "order_id": order.id}), 201
+    return jsonify({
+        "message": "Orders created successfully",
+        "order_ids": [o.id for o in created_orders]
+    }), 201
 
 
-@orders_bp.route('/api/orders/<id>', methods=['GET'])
+@orders_bp.route('/api/orders/<int:id>', methods=['GET'])
 @jwt_required()
 def get_order_details(id):
     """
@@ -99,21 +108,23 @@ def get_order_details(id):
       404:
         description: Order not found
     """
-    user_id = get_jwt_identity()
-    order = Order.query.filter_by(id=id, customer_id=user_id).first()
+    buyer_id = get_jwt_identity()
+    order = Order.query.filter_by(id=id, buyer_id=buyer_id).first()
     if not order:
         return jsonify({"message": "Order not found"}), 404
 
     return jsonify({
         "order_id": order.id,
-        "store_name": order.store.store_name,
-        "total_amount": float(order.total_amount),
+        "product_name": order.items[0].product.name if order.items else None,
+        "quantity": order.quantity,
+        "total_price": float(order.total_price),
         "status": order.status,
+        "delivery_address": order.delivery_address,
         "created_at": order.created_at.isoformat()
     }), 200
 
 
-@orders_bp.route('/api/orders/<id>/status', methods=['PATCH'])
+@orders_bp.route('/api/orders/<int:id>/status', methods=['PATCH'])
 @jwt_required()
 def update_order_status(id):
     """
@@ -156,7 +167,14 @@ def update_order_status(id):
         return jsonify({"message": "Invalid status"}), 400
 
     vendor_id = get_jwt_identity()
-    order = Order.query.join(Store).filter(Order.id == id, Store.vendor_id == vendor_id).first()
+    order = (
+        Order.query
+        .join(Product, Order.product_id == Product.id)
+        .join(Store, Product.storefront_id == Store.id)
+        .filter(Order.id == id, Store.vendor_id == vendor_id)
+        .first()
+    )
+
     if not order:
         return jsonify({"message": "Order not found"}), 404
 
@@ -176,8 +194,8 @@ def add_product_or_store_review():
       - Orders
     summary: Post a review for a product or store
     description: >
-      Allows a customer to leave a review for either a product they purchased or a store they bought from.
-      The customer must have purchased the product or ordered from the store before leaving a review.
+      Allows a customer to leave a review for a product they purchased.
+      The customer must have purchased the product before leaving a review.
     parameters:
       - in: body
         name: body
@@ -187,14 +205,14 @@ def add_product_or_store_review():
           required:
             - rating
           properties:
+            order_id:
+              type: integer
+              example: 10
+              description: ID of the order being reviewed
             product_id:
               type: integer
               example: 5
               description: ID of the product being reviewed
-            store_id:
-              type: integer
-              example: 2
-              description: ID of the store being reviewed
             rating:
               type: integer
               example: 4
@@ -209,35 +227,30 @@ def add_product_or_store_review():
       400:
         description: Invalid input or not authorized
     """
-    user_id = get_jwt_identity()
+    buyer_id = get_jwt_identity()
     data = request.get_json()
 
+    order_id = data.get('order_id')
     product_id = data.get('product_id')
-    store_id = data.get('store_id')
     rating = data.get('rating')
     comment = data.get('comment', '')
 
-    if not rating or (not product_id and not store_id):
-        return jsonify({"message": "Either product_id or store_id is required, and rating must be given"}), 400
+    if not rating or not order_id or not product_id:
+        return jsonify({"message": "order_id, product_id, and rating are required"}), 400
 
     # Validate purchase before allowing review
-    if product_id:
-        purchased = db.session.query(Order).join(OrderItem).filter(
-            Order.customer_id == user_id,
-            OrderItem.product_id == product_id
-        ).first()
-        if not purchased:
-            return jsonify({"message": "You can only review products you have purchased"}), 403
+    purchased = Order.query.filter_by(
+        id=order_id,
+        buyer_id=buyer_id,
+        product_id=product_id
+    ).first()
 
-    if store_id:
-        purchased_from_store = Order.query.filter_by(customer_id=user_id, store_id=store_id).first()
-        if not purchased_from_store:
-            return jsonify({"message": "You can only review stores you have purchased from"}), 403
+    if not purchased:
+        return jsonify({"message": "You can only review products you have purchased"}), 403
 
     review = Review(
-        customer_id=user_id,
+        order_id=order_id,
         product_id=product_id,
-        store_id=store_id,
         rating=rating,
         comment=comment
     )

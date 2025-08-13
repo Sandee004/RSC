@@ -31,71 +31,71 @@ def geocode_location(country, state, city, bus_stop=None):
 @jwt_required()
 def set_store_info():
     """
-Create or Update Store Information
----
-tags:
-  - Vendor
-summary: Create or update a store for the logged-in vendor
-description: >
-  Creates a new store or updates the store information linked to the authenticated vendor.  
-  Vendors provide their location using human-readable details (country, state, city, bus stop),  
-  and the backend automatically converts this into coordinates for "nearby stores" searches.
-security:
-  - Bearer: []
-consumes:
-  - application/json
-parameters:
-  - name: Authorization
-    in: header
-    description: 'JWT token as: Bearer <your_token>'
-    required: true
-    schema:
-      type: string
-      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-  - in: body
-    name: body
-    required: true
-    description: Store details and location
-    schema:
-      type: object
-      required:
-        - store_name
-        - store_description
-        - country
-        - state
-        - city
-      properties:
-        store_name:
+    Create or Update Store Information
+    ---
+    tags:
+      - Vendor
+    summary: Create or update a store for the logged-in vendor
+    description: >
+      Creates a new store or updates the store information linked to the authenticated vendor.  
+      Vendors provide their location using human-readable details (country, state, city, bus stop),  
+      and the backend automatically converts this into coordinates for "nearby stores" searches.
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token as: Bearer <your_token>'
+        required: true
+        schema:
           type: string
-          example: My Awesome Store
-        store_description:
-          type: string
-          example: We sell awesome products.
-        country:
-          type: string
-          example: Nigeria
-        state:
-          type: string
-          example: Lagos
-        city:
-          type: string
-          example: Ikeja
-        bus_stop:
-          type: string
-          example: Allen Avenue
-responses:
-  200:
-    description: Store details updated successfully
-    schema:
-      type: object
-      properties:
-        message:
-          type: string
-          example: Store details have been updated successfully
-  401:
-    description: Unauthorized — missing or invalid JWT token
-  400:
-    description: Missing required fields
+          example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      - in: body
+        name: body
+        required: true
+        description: Store details and location
+        schema:
+          type: object
+          required:
+            - store_name
+            - store_description
+            - country
+            - state
+            - city
+          properties:
+            store_name:
+              type: string
+              example: My Awesome Store
+            store_description:
+              type: string
+              example: We sell awesome products.
+            country:
+              type: string
+              example: Nigeria
+            state:
+              type: string
+              example: Lagos
+            city:
+              type: string
+              example: Ikeja
+            bus_stop:
+              type: string
+              example: Allen Avenue
+    responses:
+      200:
+        description: Store details updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Store details have been updated successfully
+      401:
+        description: Unauthorized — missing or invalid JWT token
+      400:
+        description: Missing required fields
     """
     vendor_id = get_jwt_identity()
     data = request.get_json()
@@ -107,35 +107,28 @@ responses:
     city = data.get('city')
     bus_stop = data.get('bus_stop')
 
-    # Basic validation
     if not all([store_name, store_description, country, state, city]):
         return jsonify({"message": "Missing required store or location fields"}), 400
 
+    location_str = ", ".join(filter(None, [bus_stop, city, state, country]))
     latitude, longitude = geocode_location(country, state, city, bus_stop)
 
     store_details = Store.query.filter_by(vendor_id=vendor_id).first()
     if store_details:
-        store_details.store_name = store_name
-        store_details.store_description = store_description
-        store_details.country = country
-        store_details.state = state
-        store_details.city = city
-        store_details.bus_stop = bus_stop
-        store_details.latitude = latitude
-        store_details.longitude = longitude
+        store_details.name = store_name
+        store_details.description = store_description
+        store_details.location = location_str
+        store_details.slug = store_name.lower().replace(" ", "-")
+        store_details.custom_domain = f"{store_details.slug}.marketplacename.com"
     else:
         slug = store_name.lower().replace(" ", "-")
         store_details = Store(
             vendor_id=vendor_id,
-            store_name=store_name,
-            store_description=store_description,
+            name=store_name,
+            description=store_description,
+            location=location_str,
             slug=slug,
-            country=country,
-            state=state,
-            city=city,
-            bus_stop=bus_stop,
-            latitude=latitude,
-            longitude=longitude
+            custom_domain=f"{slug}.marketplacename.com"
         )
         db.session.add(store_details)
 
@@ -173,9 +166,12 @@ def get_store_info(slug):
             store_description:
               type: string
               example: We sell awesome products.
-            contact_email:
+            location:
               type: string
-              example: owner@example.com
+              example: Allen Avenue, Ikeja, Lagos, Nigeria
+            custom_domain:
+              type: string
+              example: my-awesome-store.marketplacename.com
       404:
         description: Store not found
     """
@@ -185,14 +181,10 @@ def get_store_info(slug):
         return jsonify({"error": "Store not found"}), 404
 
     return jsonify({
-        "store_name": store_details.store_name,
-        "store_description": store_details.store_description,
-        "country": store_details.country,
-        "state": store_details.state,
-        "city": store_details.city,
-        "bus_stop": store_details.bus_stop,
-        "latitude": store_details.latitude,
-        "longitude": store_details.longitude
+        "store_name": store_details.name,
+        "store_description": store_details.description,
+        "location": store_details.location,
+        "custom_domain": store_details.custom_domain
     }), 200
 
 
@@ -200,62 +192,62 @@ def get_store_info(slug):
 @jwt_required()
 def add_products_to_store():
     """
-Add a Product to the Vendor's Store
----
-tags:
-  - Vendor
-summary: Add a new product to the logged-in vendor's store
-description: >
-  This endpoint creates a new product in the store linked to the authenticated vendor.
-  The vendor is determined from the JWT token.
-security:
-  - Bearer: []
-consumes:
-  - application/json
-parameters:
-  - name: Authorization
-    in: header
-    description: 'JWT token as: Bearer <your_token>'
-    required: true
-    schema:
-      type: string
-      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-  - in: body
-    name: body
-    required: true
-    description: Product details
-    schema:
-      type: object
-      required:
-        - name
-        - price
-        - stock
-      properties:
-        name:
+    Add a Product to the Vendor's Store
+    ---
+    tags:
+      - Vendor
+    summary: Add a new product to the logged-in vendor's store
+    description: >
+      This endpoint creates a new product in the store linked to the authenticated vendor.
+      The vendor is determined from the JWT token.
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token as: Bearer <your_token>'
+        required: true
+        schema:
           type: string
-          example: Premium Coffee Beans
-        description:
-          type: string
-          example: Freshly roasted Arabica beans.
-        price:
-          type: number
-          example: 19.99
-        stock:
-          type: integer
-          example: 50
-responses:
-  201:
-    description: Product added successfully
-    schema:
-      type: object
-      properties:
-        message:
-          type: string
-          example: Product added successfully
-  401:
-    description: Unauthorized — missing or invalid JWT token
-  404:
-    description: Store not found for vendor
+          example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      - in: body
+        name: body
+        required: true
+        description: Product details
+        schema:
+          type: object
+          required:
+            - name
+            - price
+            - stock
+          properties:
+            name:
+              type: string
+              example: Premium Coffee Beans
+            description:
+              type: string
+              example: Freshly roasted Arabica beans.
+            price:
+              type: number
+              example: 19.99
+            stock:
+              type: integer
+              example: 50
+    responses:
+      201:
+        description: Product added successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Product added successfully
+      401:
+        description: Unauthorized — missing or invalid JWT token
+      404:
+        description: Store not found for vendor
     """
     vendor_id = get_jwt_identity()
     store = Store.query.filter_by(vendor_id=vendor_id).first()
@@ -273,7 +265,7 @@ responses:
         return jsonify({"message": "Product name and price are required"}), 400
 
     product = Product(
-        store_id=store.id,
+        storefront_id=store.id,  # fixed field name
         name=name,
         description=description,
         price=price,
@@ -290,64 +282,62 @@ responses:
 @jwt_required()
 def update_product(product_id):
     """
-Update a Product
----
-tags:
-  - Vendor
-summary: Update an existing product in the vendor's store
-description: >
-  Updates product details (name, description, price, stock) for a product
-  that belongs to the logged-in vendor's store.
-security:
-  - Bearer: []
-parameters:
-  - name: Authorization
-    in: header
-    description: 'JWT token as: Bearer <your_token>'
-    required: true
-    schema:
-      type: string
-      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-  - name: product_id
-    in: path
-    required: true
-    schema:
-      type: integer
-    description: The ID of the product to update
-consumes:
-  - application/json
-  - application/json
-  # (Note: one 'consumes' line is enough, left as one)
-parameters:
-  - in: body
-    name: body
-    description: Fields to update
-    schema:
-      type: object
-      properties:
-        name:
+    Update a Product
+    ---
+    tags:
+      - Vendor
+    summary: Update an existing product in the vendor's store
+    description: >
+      Updates product details (name, description, price, stock) for a product
+      that belongs to the logged-in vendor's store.
+    security:
+      - Bearer: []
+    parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token as: Bearer <your_token>'
+        required: true
+        schema:
           type: string
-          example: Updated Coffee Beans
-        description:
-          type: string
-          example: Now even fresher and more aromatic!
-        price:
-          type: number
-          example: 21.99
-        stock:
+          example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      - name: product_id
+        in: path
+        required: true
+        schema:
           type: integer
-          example: 40
-responses:
-  200:
-    description: Product updated successfully
-    schema:
-      type: object
-      properties:
-        message:
-          type: string
-          example: Product updated successfully
-  404:
-    description: Product not found for this vendor
+        description: The ID of the product to update
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        description: Fields to update
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              example: Updated Coffee Beans
+            description:
+              type: string
+              example: Now even fresher and more aromatic!
+            price:
+              type: number
+              example: 21.99
+            stock:
+              type: integer
+              example: 40
+    responses:
+      200:
+        description: Product updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Product updated successfully
+      404:
+        description: Product not found for this vendor
     """
     vendor_id = get_jwt_identity()
 
@@ -355,7 +345,7 @@ responses:
     if not store:
         return jsonify({"message": "Store not found"}), 404
 
-    product = Product.query.filter_by(id=product_id, store_id=store.id).first()
+    product = Product.query.filter_by(id=product_id, storefront_id=store.id).first()  # fixed field name
     if not product:
         return jsonify({"message": "Product not found"}), 404
 
@@ -379,40 +369,40 @@ responses:
 @jwt_required()
 def delete_product(product_id):
     """
-Delete a Product
----
-tags:
-  - Vendor
-summary: Delete a product from the vendor's store
-description: >
-  Removes a product that belongs to the logged-in vendor's store.
-security:
-  - Bearer: []
-parameters:
-  - name: Authorization
-    in: header
-    description: 'JWT token as: Bearer <your_token>'
-    required: true
-    schema:
-      type: string
-      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-  - name: product_id
-    in: path
-    required: true
-    schema:
-      type: integer
-    description: The ID of the product to delete
-responses:
-  200:
-    description: Product deleted successfully
-    schema:
-      type: object
-      properties:
-        message:
+    Delete a Product
+    ---
+    tags:
+      - Vendor
+    summary: Delete a product from the vendor's store
+    description: >
+      Removes a product that belongs to the logged-in vendor's store.
+    security:
+      - Bearer: []
+    parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token as: Bearer <your_token>'
+        required: true
+        schema:
           type: string
-          example: Product deleted successfully
-  404:
-    description: Product not found for this vendor
+          example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: The ID of the product to delete
+    responses:
+      200:
+        description: Product deleted successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Product deleted successfully
+      404:
+        description: Product not found for this vendor
     """
     vendor_id = get_jwt_identity()
 
@@ -420,7 +410,7 @@ responses:
     if not store:
         return jsonify({"message": "Store not found"}), 404
 
-    product = Product.query.filter_by(id=product_id, store_id=store.id).first()
+    product = Product.query.filter_by(id=product_id, storefront_id=store.id).first()
     if not product:
         return jsonify({"message": "Product not found"}), 404
 
