@@ -1,7 +1,6 @@
-from flask import request, Blueprint, jsonify, requests
+from core.imports import request, Blueprint, jsonify, requests, jwt_required, get_jwt_identity
 from core.extensions import db
 from models.vendorModels import Store, Product
-from flask_jwt_extended import jwt_required, get_jwt_identity
 
 vendor_bp = Blueprint('vendor', __name__)
 
@@ -27,68 +26,76 @@ def geocode_location(country, state, city, bus_stop=None):
         print("Geocoding error:", e)
     return None, None
 
+
 @vendor_bp.route('/api/vendor/storefront', methods=["POST"])
 @jwt_required()
 def set_store_info():
     """
-    Create or Update Store Information
-    ---
-    tags:
-      - Vendor
-    summary: Create or update a store for the logged-in vendor
-    description: >
-      Creates a new store or updates the store information linked to the authenticated vendor.  
-      Vendors provide their location using human-readable details (country, state, city, bus stop),  
-      and the backend automatically converts this into coordinates for "nearby stores" searches.
-    security:
-      - Bearer: []
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        description: Store details and location
-        schema:
-          type: object
-          required:
-            - store_name
-            - store_description
-            - country
-            - state
-            - city
-          properties:
-            store_name:
-              type: string
-              example: My Awesome Store
-            store_description:
-              type: string
-              example: We sell awesome products.
-            country:
-              type: string
-              example: Nigeria
-            state:
-              type: string
-              example: Lagos
-            city:
-              type: string
-              example: Ikeja
-            bus_stop:
-              type: string
-              example: Allen Avenue
-    responses:
-      200:
-        description: Store details updated successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Store details have been updated successfully
-      401:
-        description: Unauthorized — missing or invalid JWT token
-      400:
-        description: Missing required fields
+Create or Update Store Information
+---
+tags:
+  - Vendor
+summary: Create or update a store for the logged-in vendor
+description: >
+  Creates a new store or updates the store information linked to the authenticated vendor.  
+  Vendors provide their location using human-readable details (country, state, city, bus stop),  
+  and the backend automatically converts this into coordinates for "nearby stores" searches.
+security:
+  - Bearer: []
+consumes:
+  - application/json
+parameters:
+  - name: Authorization
+    in: header
+    description: 'JWT token as: Bearer <your_token>'
+    required: true
+    schema:
+      type: string
+      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  - in: body
+    name: body
+    required: true
+    description: Store details and location
+    schema:
+      type: object
+      required:
+        - store_name
+        - store_description
+        - country
+        - state
+        - city
+      properties:
+        store_name:
+          type: string
+          example: My Awesome Store
+        store_description:
+          type: string
+          example: We sell awesome products.
+        country:
+          type: string
+          example: Nigeria
+        state:
+          type: string
+          example: Lagos
+        city:
+          type: string
+          example: Ikeja
+        bus_stop:
+          type: string
+          example: Allen Avenue
+responses:
+  200:
+    description: Store details updated successfully
+    schema:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Store details have been updated successfully
+  401:
+    description: Unauthorized — missing or invalid JWT token
+  400:
+    description: Missing required fields
     """
     vendor_id = get_jwt_identity()
     data = request.get_json()
@@ -133,7 +140,7 @@ def set_store_info():
         db.session.add(store_details)
 
     db.session.commit()
-    return jsonify({"message": "Store details have been updated successfully"}), 200
+    return jsonify({"message": "Store details have been added successfully"}), 200
 
 
 @vendor_bp.route('/api/vendor/storefront/<slug>', methods=["GET"])
@@ -189,60 +196,66 @@ def get_store_info(slug):
     }), 200
 
 
-
 @vendor_bp.route('/api/vendor/products', methods=['POST'])
 @jwt_required()
 def add_products_to_store():
     """
-    Add a Product to the Vendor's Store
-    ---
-    tags:
-      - Vendor
-    summary: Add a new product to the logged-in vendor's store
-    description: >
-      This endpoint creates a new product in the store linked to the authenticated vendor.
-      The vendor is determined from the JWT token.
-    security:
-      - Bearer: []
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        description: Product details
-        schema:
-          type: object
-          required:
-            - name
-            - price
-            - stock
-          properties:
-            name:
-              type: string
-              example: Premium Coffee Beans
-            description:
-              type: string
-              example: Freshly roasted Arabica beans.
-            price:
-              type: number
-              example: 19.99
-            stock:
-              type: integer
-              example: 50
-    responses:
-      201:
-        description: Product added successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Product added successfully
-      401:
-        description: Unauthorized — missing or invalid JWT token
-      404:
-        description: Store not found for vendor
+Add a Product to the Vendor's Store
+---
+tags:
+  - Vendor
+summary: Add a new product to the logged-in vendor's store
+description: >
+  This endpoint creates a new product in the store linked to the authenticated vendor.
+  The vendor is determined from the JWT token.
+security:
+  - Bearer: []
+consumes:
+  - application/json
+parameters:
+  - name: Authorization
+    in: header
+    description: 'JWT token as: Bearer <your_token>'
+    required: true
+    schema:
+      type: string
+      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  - in: body
+    name: body
+    required: true
+    description: Product details
+    schema:
+      type: object
+      required:
+        - name
+        - price
+        - stock
+      properties:
+        name:
+          type: string
+          example: Premium Coffee Beans
+        description:
+          type: string
+          example: Freshly roasted Arabica beans.
+        price:
+          type: number
+          example: 19.99
+        stock:
+          type: integer
+          example: 50
+responses:
+  201:
+    description: Product added successfully
+    schema:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Product added successfully
+  401:
+    description: Unauthorized — missing or invalid JWT token
+  404:
+    description: Store not found for vendor
     """
     vendor_id = get_jwt_identity()
     store = Store.query.filter_by(vendor_id=vendor_id).first()
@@ -277,54 +290,64 @@ def add_products_to_store():
 @jwt_required()
 def update_product(product_id):
     """
-    Update a Product
-    ---
-    tags:
-      - Vendor
-    summary: Update an existing product in the vendor's store
-    description: >
-      Updates product details (name, description, price, stock) for a product
-      that belongs to the logged-in vendor's store.
-    security:
-      - Bearer: []
-    parameters:
-      - name: product_id
-        in: path
-        required: true
-        type: integer
-        description: The ID of the product to update
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        description: Fields to update
-        schema:
-          type: object
-          properties:
-            name:
-              type: string
-              example: Updated Coffee Beans
-            description:
-              type: string
-              example: Now even fresher and more aromatic!
-            price:
-              type: number
-              example: 21.99
-            stock:
-              type: integer
-              example: 40
-    responses:
-      200:
-        description: Product updated successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Product updated successfully
-      404:
-        description: Product not found for this vendor
+Update a Product
+---
+tags:
+  - Vendor
+summary: Update an existing product in the vendor's store
+description: >
+  Updates product details (name, description, price, stock) for a product
+  that belongs to the logged-in vendor's store.
+security:
+  - Bearer: []
+parameters:
+  - name: Authorization
+    in: header
+    description: 'JWT token as: Bearer <your_token>'
+    required: true
+    schema:
+      type: string
+      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  - name: product_id
+    in: path
+    required: true
+    schema:
+      type: integer
+    description: The ID of the product to update
+consumes:
+  - application/json
+  - application/json
+  # (Note: one 'consumes' line is enough, left as one)
+parameters:
+  - in: body
+    name: body
+    description: Fields to update
+    schema:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Updated Coffee Beans
+        description:
+          type: string
+          example: Now even fresher and more aromatic!
+        price:
+          type: number
+          example: 21.99
+        stock:
+          type: integer
+          example: 40
+responses:
+  200:
+    description: Product updated successfully
+    schema:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Product updated successfully
+  404:
+    description: Product not found for this vendor
     """
     vendor_id = get_jwt_identity()
 
@@ -356,32 +379,40 @@ def update_product(product_id):
 @jwt_required()
 def delete_product(product_id):
     """
-    Delete a Product
-    ---
-    tags:
-      - Vendor
-    summary: Delete a product from the vendor's store
-    description: >
-      Removes a product that belongs to the logged-in vendor's store.
-    security:
-      - Bearer: []
-    parameters:
-      - name: product_id
-        in: path
-        required: true
-        type: integer
-        description: The ID of the product to delete
-    responses:
-      200:
-        description: Product deleted successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Product deleted successfully
-      404:
-        description: Product not found for this vendor
+Delete a Product
+---
+tags:
+  - Vendor
+summary: Delete a product from the vendor's store
+description: >
+  Removes a product that belongs to the logged-in vendor's store.
+security:
+  - Bearer: []
+parameters:
+  - name: Authorization
+    in: header
+    description: 'JWT token as: Bearer <your_token>'
+    required: true
+    schema:
+      type: string
+      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  - name: product_id
+    in: path
+    required: true
+    schema:
+      type: integer
+    description: The ID of the product to delete
+responses:
+  200:
+    description: Product deleted successfully
+    schema:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Product deleted successfully
+  404:
+    description: Product not found for this vendor
     """
     vendor_id = get_jwt_identity()
 

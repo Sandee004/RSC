@@ -4,7 +4,8 @@ from core.imports import datetime
 
 class Store(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    vendor_id = db.Column(db.Integer, db.ForeignKey('vendor.id'), nullable=False)
+    #vendor_id = db.Column(db.Integer, db.ForeignKey('vendor.id'), nullable=False)
+    vendor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     store_name = db.Column(db.String(255), nullable=False)
     store_description = db.Column(db.Text, nullable=True)
     slug = db.Column(db.String(255), unique=True, nullable=False)
@@ -17,6 +18,8 @@ class Store(db.Model):
     longitude = db.Column(db.Float, nullable=True)
 
     products = db.relationship('Product', backref='store', lazy=True)
+    orders = db.relationship('Order', backref='store', lazy=True)
+    reviews = db.relationship('Review', backref='store', lazy=True)
 
 
 class Product(db.Model):
@@ -29,4 +32,6 @@ class Product(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    store = db.relationship("Store", backref=db.backref("products", lazy=True))
+    #store = db.relationship("Store", backref=db.backref("products", lazy=True))
+    order_items = db.relationship('OrderItem', backref='product', lazy=True)
+    reviews = db.relationship('Review', backref='product', lazy=True)
