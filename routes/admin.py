@@ -1,5 +1,6 @@
-from core.imports import Blueprint, jsonify, jwt_required, request, get_jwt_identity
+from core.imports import Blueprint, jsonify, jwt_required, request, get_jwt_identity, func, datetime, timedelta
 from models.userModel import User
+from models.ordersModels import Order
 from core.extensions import db
 
 admin_bp = Blueprint('admin', __name__)
@@ -227,5 +228,100 @@ def update_kyc_status(user_id):
             "id": user.id,
             "name": user.name,
             "kyc_status": user.kyc_status
+        }
+    }), 200
+
+
+@admin_bp.route('/api/admin/revenue', methods=['GET'])
+@jwt_required()
+def get_platform_revenue():
+    """
+    Get Platform Earnings
+    ---
+    tags:
+      - Admin
+    summary: Retrieve total platform revenue
+    description: Returns the total revenue generated from all completed orders.
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Total platform earnings
+        schema:
+          type: object
+          properties:
+            total_revenue:
+              type: number
+              example: 24500.75
+      403:
+        description: Forbidden — only admins can access this data
+    """
+    total_revenue = db.session.query(func.sum(Order.total_price)).scalar() or 0
+    return jsonify({
+        "total_revenue": float(total_revenue)
+    }), 200
+
+
+@admin_bp.route('/api/admin/reports', methods=['GET'])
+@jwt_required()
+def get_platform_reports():
+    """
+    Get Platform Performance Reports
+    ---
+    tags:
+      - Admin
+    summary: Retrieve weekly and monthly platform performance
+    description: >
+      Returns statistics for weekly and monthly performance,  
+      including total orders and total revenue for each period.
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Performance data retrieved successfully
+        schema:
+          type: object
+          properties:
+            weekly:
+              type: object
+              properties:
+                orders_count:
+                  type: integer
+                  example: 42
+                total_revenue:
+                  type: number
+                  example: 5500.50
+            monthly:
+              type: object
+              properties:
+                orders_count:
+                  type: integer
+                  example: 180
+                total_revenue:
+                  type: number
+                  example: 24800.75
+      403:
+        description: Forbidden — only admins can access this data
+    """
+    now = datetime.utcnow()
+    week_start = now - timedelta(days=7)
+    month_start = now - timedelta(days=30)
+
+    # Weekly stats
+    weekly_orders = Order.query.filter(Order.created_at >= week_start).all()
+    weekly_revenue = sum(order.total_price for order in weekly_orders)
+
+    # Monthly stats
+    monthly_orders = Order.query.filter(Order.created_at >= month_start).all()
+    monthly_revenue = sum(order.total_price for order in monthly_orders)
+
+    return jsonify({
+        "weekly": {
+            "orders_count": len(weekly_orders),
+            "total_revenue": float(weekly_revenue)
+        },
+        "monthly": {
+            "orders_count": len(monthly_orders),
+            "total_revenue": float(monthly_revenue)
         }
     }), 200

@@ -1,5 +1,6 @@
 from core.imports import Blueprint, jsonify, request, requests
 from models.vendorModels import Product, Store
+from models.userModel import User
 from sqlalchemy import or_
 from routes.vendor import geocode_location
 from math import radians, cos, sin, asin, sqrt
@@ -45,14 +46,14 @@ def haversine(lat1, lon1, lat2, lon2):
 @marketplace_bp.route('/api/marketplace/popular', methods=['GET'])
 def get_popular_products():
     """
-    Get Popular (Newest First) Products
+    Get Popular (Newest First) Products from Verified Vendors
     ---
     tags:
       - Marketplace
-    summary: Retrieve products sorted by newest first
+    summary: Retrieve products from verified vendors sorted by newest first
     description: >
-      Returns all products in the marketplace sorted by creation date (newest first).
-      This means products created this week appear at the top, but older products are still included.
+      Returns all products in the marketplace from vendors whose KYC status is 'accepted',
+      sorted by creation date (newest first).
     responses:
       200:
         description: List of products sorted by newest first
@@ -80,6 +81,8 @@ def get_popular_products():
     products = (
         Product.query
         .join(Product.store)
+        .join(Store.vendor)  # join the user/vendor table
+        .filter(User.kyc_status == "accepted")  # only products from accepted vendors
         .order_by(Product.created_at.desc())
         .all()
     )
@@ -90,12 +93,14 @@ def get_popular_products():
             "id": product.id,
             "name": product.name,
             "price": float(product.price),
-            "store_name": product.store.store_name,
+            "store_name": product.store.name,
             "created_at": product.created_at.isoformat()
         })
 
     return jsonify(results), 200
 
+
+from sqlalchemy import or_
 
 @marketplace_bp.route('/api/marketfront/search', methods=['GET'])
 def search_marketfront():
@@ -104,10 +109,10 @@ def search_marketfront():
     ---
     tags:
       - Marketplace
-    summary: Search for products or stores
+    summary: Search for products or stores from verified vendors
     description: >
       This endpoint searches across both product names/descriptions and store names/descriptions.
-      Returns matching products and stores in separate lists.
+      Only products and stores from vendors with accepted KYC are returned.
     parameters:
       - name: q
         in: query
@@ -140,15 +145,16 @@ def search_marketfront():
                   store_description: {type: string, example: We sell premium coffee beans.}
     """
     query = request.args.get('q', '').strip()
-
     if not query:
         return jsonify({"message": "Search term 'q' is required"}), 400
 
-    # Search products
+    # Products from verified vendors
     product_results = (
         Product.query
         .join(Product.store)
+        .join(Store.vendor)
         .filter(
+            User.kyc_status == "accepted",
             or_(
                 Product.name.ilike(f"%{query}%"),
                 Product.description.ilike(f"%{query}%")
@@ -158,40 +164,32 @@ def search_marketfront():
         .all()
     )
 
-    products = []
-    for product in product_results:
-        products.append({
-            "id": product.id,
-            "name": product.name,
-            "price": float(product.price),
-            "store_name": product.store.store_name
-        })
+    products = [
+        {"id": p.id, "name": p.name, "price": float(p.price), "store_name": p.store.name}
+        for p in product_results
+    ]
 
-    # Search stores
+    # Stores from verified vendors
     store_results = (
         Store.query
+        .join(Store.vendor)
         .filter(
+            User.kyc_status == "accepted",
             or_(
-                Store.store_name.ilike(f"%{query}%"),
-                Store.store_description.ilike(f"%{query}%")
+                Store.name.ilike(f"%{query}%"),
+                Store.description.ilike(f"%{query}%")
             )
         )
-        .order_by(Store.store_name.asc())
+        .order_by(Store.name.asc())
         .all()
     )
 
-    stores = []
-    for store in store_results:
-        stores.append({
-            "id": store.id,
-            "store_name": store.store_name,
-            "store_description": store.store_description
-        })
+    stores = [
+        {"id": s.id, "store_name": s.name, "store_description": s.description}
+        for s in store_results
+    ]
 
-    return jsonify({
-        "products": products,
-        "stores": stores
-    }), 200
+    return jsonify({"products": products, "stores": stores}), 200
 
 
 @marketplace_bp.route('/api/marketplace/nearby', methods=['GET'])
@@ -201,11 +199,10 @@ def get_products_nearby():
     ---
     tags:
       - Marketplace
-    summary: Retrieve products from stores near the user's location
+    summary: Retrieve products from verified vendors near the user's location
     description: >
-      This endpoint detects the user's location via their IP address, unless
-      location parameters are provided (country, state, city, optional bus stop),
-      in which case it uses geocoding to determine coordinates.
+      Returns products from stores near the user's location.
+      Only stores owned by vendors with accepted KYC are included.
     parameters:
       - name: country
         in: query
@@ -231,28 +228,33 @@ def get_products_nearby():
         description: Search radius in kilometers
     responses:
       200:
-        description: List of nearby products sorted by proximity
+        description: List of nearby products sorted by distance
     """
     radius = float(request.args.get("radius", 10))
-
     country = request.args.get("country")
     state = request.args.get("state")
     city = request.args.get("city")
     bus_stop = request.args.get("bus_stop")
 
     if all([country, state, city]):
-        # Use geocoding
         latitude, longitude = geocode_location(country, state, city, bus_stop)
     else:
-        # Use IP-based location
         ip = request.remote_addr
         latitude, longitude = get_location_from_ip(ip)
 
     if not latitude or not longitude:
         return jsonify({"message": "Could not determine location"}), 400
 
-    # Query stores with coordinates
-    stores = Store.query.filter(Store.latitude.isnot(None), Store.longitude.isnot(None)).all()
+    stores = (
+        Store.query
+        .join(Store.vendor)
+        .filter(
+            Store.latitude.isnot(None),
+            Store.longitude.isnot(None),
+            User.kyc_status == "accepted"
+        )
+        .all()
+    )
 
     nearby_products = []
     for store in stores:
@@ -263,7 +265,7 @@ def get_products_nearby():
                     "product_id": product.id,
                     "name": product.name,
                     "price": float(product.price),
-                    "store_name": store.store_name,
+                    "store_name": store.name,
                     "distance_km": round(distance, 2)
                 })
 
@@ -278,29 +280,26 @@ def filter_products():
     ---
     tags:
       - Marketplace
-    summary: Retrieve products based on filters
+    summary: Retrieve products from verified vendors based on filters
     description: >
-      This endpoint returns products matching the given filters.
-      Filters are optional and can be combined.
+      Returns products matching optional filters (min/max price, store name).
+      Only products from vendors with accepted KYC are included.
     parameters:
       - name: min_price
         in: query
         required: false
         type: number
         example: 10.00
-        description: Minimum price
       - name: max_price
         in: query
         required: false
         type: number
         example: 100.00
-        description: Maximum price
       - name: store
         in: query
         required: false
         type: string
         example: My Awesome Store
-        description: Filter products by store name
     responses:
       200:
         description: List of filtered products
@@ -309,42 +308,29 @@ def filter_products():
           items:
             type: object
             properties:
-              product_id:
-                type: integer
-                example: 1
-              name:
-                type: string
-                example: Wireless Headphones
-              price:
-                type: number
-                example: 59.99
-              store_name:
-                type: string
-                example: My Awesome Store
+              product_id: {type: integer, example: 1}
+              name: {type: string, example: Wireless Headphones}
+              price: {type: number, example: 59.99}
+              store_name: {type: string, example: My Awesome Store}
     """
     min_price = request.args.get('min_price', type=float)
     max_price = request.args.get('max_price', type=float)
     store_name = request.args.get('store')
 
-    query = Product.query.join(Product.store)
+    query = Product.query.join(Product.store).join(Store.vendor).filter(User.kyc_status == "accepted")
 
     if min_price is not None:
         query = query.filter(Product.price >= min_price)
     if max_price is not None:
         query = query.filter(Product.price <= max_price)
     if store_name:
-        query = query.filter(Store.store_name.ilike(f"%{store_name}%"))
+        query = query.filter(Store.name.ilike(f"%{store_name}%"))
 
     products = query.order_by(Product.created_at.desc()).all()
 
     results = [
-        {
-            "product_id": product.id,
-            "name": product.name,
-            "price": float(product.price),
-            "store_name": product.store.store_name
-        }
-        for product in products
+        {"product_id": p.id, "name": p.name, "price": float(p.price), "store_name": p.store.name}
+        for p in products
     ]
 
     return jsonify(results), 200

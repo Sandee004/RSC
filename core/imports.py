@@ -6,9 +6,10 @@ from sqlalchemy import text, inspect
 from flask_bcrypt import Bcrypt
 from flasgger import Swagger
 from flask_cors import CORS
+from sqlalchemy import func
+from datetime import datetime, timedelta
 import random
 import string
-from datetime import datetime
 import requests
 import cloudinary
 import os
