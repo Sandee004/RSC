@@ -14,16 +14,8 @@ class Store(db.Model):
     verified = db.Column(db.Boolean, default=False)
     custom_domain = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    """
-    country = db.Column(db.String(100), nullable=False)
-    state = db.Column(db.String(100), nullable=False)
-    city = db.Column(db.String(100), nullable=False)
-    bus_stop = db.Column(db.String(255), nullable=True)
-    latitude = db.Column(db.Float, nullable=True)
-    longitude = db.Column(db.Float, nullable=True)
-    """
     products = db.relationship('Product', backref='store', lazy=True)
-    orders = db.relationship('Order', backref='store', lazy=True)
+    #orders = db.relationship('Order', backref='store', lazy=True)
     #reviews = db.relationship('Review', backref='store', lazy=True)
 
 
