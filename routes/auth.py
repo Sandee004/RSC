@@ -1,7 +1,8 @@
 from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, random, string, cloudinary, os, load_dotenv
 from core.config import Config
-from core.extensions import db, bcrypt
+from core.extensions import db
 from models.userModel import User
+from models.vendorModels import Store
 load_dotenv() 
 
 auth_bp = Blueprint('auth', __name__)
@@ -21,7 +22,7 @@ def signup():
       - Authentication
     summary: Create a new user account
     description: >
-      This endpoint registers a new user with a username, email, and phone number.
+      This endpoint registers a new user with a name, email, and phone number.
       Upon successful registration, the user is assigned a unique referral code. 
       If a referral code is provided during signup, it will be recorded as the referrer.
     consumes:
@@ -34,11 +35,11 @@ def signup():
         schema:
           type: object
           required:
-            - username
+            - name
             - email
             - phone
           properties:
-            username:
+            name:
               type: string
               example: johndoe
             email:
@@ -70,10 +71,10 @@ def signup():
       400:
         description: Missing required fields
       409:
-        description: Email or username already exists
+        description: Email or name already exists
     """
     data = request.get_json()
-    name = data.get('username')  # store as User.name
+    name = data.get('name')
     email = data.get('email')
     phone = data.get('phone')
     referral_code_used = data.get('referral_code')
@@ -85,7 +86,7 @@ def signup():
         return jsonify({"message": "Email already exists. Try logging in."}), 409
 
     if User.query.filter_by(name=name).first():
-        return jsonify({"message": "Username already exists. Please choose another."}), 409
+        return jsonify({"message": "Name already exists. Please choose another."}), 409
 
     # Validate referral code
     referrer = None
@@ -99,20 +100,17 @@ def signup():
     while User.query.filter_by(referral_code=new_referral_code).first():
         new_referral_code = generate_referral_code()
 
-    # Create new user
     new_user = User(
         name=name,
         email=email,
         phone=phone,
-        role="user",
+        role="buyer",
         referral_code=new_referral_code,
         referred_by=referrer.referral_code if referrer else None
     )
 
     db.session.add(new_user)
     db.session.commit()
-
-    # JWT token
     access_token = create_access_token(identity=new_user.id)
 
     return jsonify({
@@ -141,15 +139,15 @@ def login():
         schema:
           type: object
           required:
-            - username
+            - name
             - email
           properties:
-            username:
+            name:
               type: string
               example: johndoe
             email:
               type: string
-              example: johndoe@example.com
+              example: example@example.com
     responses:
       200:
         description: Login successful
@@ -165,7 +163,7 @@ def login():
             user:
               type: object
               properties:
-                username:
+                name:
                   type: string
                   example: johndoe
                 email:
@@ -175,16 +173,16 @@ def login():
                   type: string
                   example: "+2348012345678"
       400:
-        description: Missing username or email
+        description: Missing name or email
       401:
         description: Invalid credentials
     """
     data = request.get_json()
-    name = data.get('username')
+    name = data.get('name')
     email = data.get('email')
 
     if not name or not email:
-        return jsonify({"message": "Username and email are required"}), 400
+        return jsonify({"message": "Name and email are required"}), 400
 
     # Match against existing user
     user = User.query.filter_by(name=name, email=email).first()
@@ -197,7 +195,7 @@ def login():
         "message": "Login successful",
         "access_token": access_token,
         "user": {
-            "username": user.name,
+            "name": user.name,
             "email": user.email,
             "phone": user.phone,
         }
@@ -236,7 +234,7 @@ def profile():
 
     user_data = {
         "id": user.id,
-        "username": user.name,
+        "name": user.name,
         "email": user.email,
         "phone": user.phone,
         "role": user.role,
@@ -246,6 +244,24 @@ def profile():
         "credits": user.credits,
         "created_at": user.created_at.isoformat()
     }
+
+    if user.role.lower() == "vendor":
+        store = Store.query.filter_by(vendor_id=user.id).first()
+        if store:
+            user_data["store"] = {
+                "id": store.id,
+                "name": store.name,
+                "description": store.description,
+                "banner": store.banner,
+                "location": store.location,
+                "slug": store.slug,
+                "verified": store.verified,
+                "custom_domain": store.custom_domain,
+                "created_at": store.created_at.isoformat()
+            }
+        else:
+            user_data["store"] = None  # Vendor has no store yet
+
     return jsonify(user_data), 200
 
 
@@ -258,7 +274,7 @@ def update_profile_details():
     tags:
       - User
     summary: Partially update the authenticated user's details
-    description: Allows the authenticated user to update one or more details like username, email, or phone.
+    description: Allows the authenticated user to update one or more details like name, email, or phone.
     consumes:
       - application/json
     security:
@@ -278,7 +294,7 @@ def update_profile_details():
         schema:
           type: object
           properties:
-            username:
+            name:
               type: string
               example: johndoe_updated
             email:
@@ -299,7 +315,7 @@ def update_profile_details():
             user:
               type: object
               properties:
-                username:
+                name:
                   type: string
                 email:
                   type: string
@@ -322,8 +338,8 @@ def update_profile_details():
 
     updated = False
 
-    if 'username' in data and data['username']:
-        user.name = data['username']
+    if 'name' in data and data['name']:
+        user.name = data['name']
         updated = True
 
     if 'email' in data and data['email']:
@@ -345,7 +361,7 @@ def update_profile_details():
     return jsonify({
         "message": "User details updated successfully",
         "user": {
-            "username": user.name,
+            "name": user.name,
             "email": user.email,
             "phone": user.phone,
             "referral_code": user.referral_code

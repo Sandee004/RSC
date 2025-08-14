@@ -1,10 +1,9 @@
 from core.imports import request, Blueprint, jsonify, requests, jwt_required, get_jwt_identity
 from core.extensions import db
 from models.vendorModels import Store, Product
+from models.userModel import User
 
 vendor_bp = Blueprint('vendor', __name__)
-
-
 def geocode_location(country, state, city, bus_stop=None):
     """
     Convert human-readable location into latitude & longitude using OSM Nominatim.
@@ -39,7 +38,10 @@ def set_store_info():
     description: >
       Creates a new store or updates the store information linked to the authenticated vendor.  
       Vendors provide their location using human-readable details (country, state, city, bus stop),  
-      and the backend automatically converts this into coordinates for "nearby stores" searches.
+      and the backend automatically converts this into coordinates for "nearby stores" searches.  
+
+      **Additional behavior:**  
+      - If the authenticated user's role is currently `"buyer"`, it will be updated to `"vendor"` upon store creation.
     security:
       - Bearer: []
     consumes:
@@ -85,13 +87,13 @@ def set_store_info():
               example: Allen Avenue
     responses:
       200:
-        description: Store details updated successfully
+        description: Store details added or updated successfully
         schema:
           type: object
           properties:
             message:
               type: string
-              example: Store details have been updated successfully
+              example: Store details have been added successfully
       401:
         description: Unauthorized — missing or invalid JWT token
       400:
@@ -131,6 +133,10 @@ def set_store_info():
             custom_domain=f"{slug}.marketplacename.com"
         )
         db.session.add(store_details)
+
+        user = User.query.get(vendor_id)
+        if user and user.role.lower() == "buyer":
+            user.role = "vendor"
 
     db.session.commit()
     return jsonify({"message": "Store details have been added successfully"}), 200
