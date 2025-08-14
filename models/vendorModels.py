@@ -24,12 +24,12 @@ class Store(db.Model):
     """
     products = db.relationship('Product', backref='store', lazy=True)
     orders = db.relationship('Order', backref='store', lazy=True)
-    reviews = db.relationship('Review', backref='store', lazy=True)
+    #reviews = db.relationship('Review', backref='store', lazy=True)
 
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    storefront_id = db.Column(db.Integer, db.ForeignKey('store.id'), nullable=False)
+    store_id = db.Column(db.Integer, db.ForeignKey('store.id'), nullable=False)
     name = db.Column(db.String(255), nullable=False)
     category = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -39,5 +39,5 @@ class Product(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     #store = db.relationship("Store", backref=db.backref("products", lazy=True))
-    order_items = db.relationship('OrderItem', backref='product', lazy=True)
+    #order_items = db.relationship('OrderItem', backref='product', lazy=True)
     reviews = db.relationship('Review', backref='product', lazy=True)

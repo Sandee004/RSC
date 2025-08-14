@@ -13,17 +13,19 @@ class Order(db.Model):
     tracking_info = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    items = db.relationship('OrderItem', backref='order', lazy=True)
 
 
 class Review(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Add this line
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
 
-    rating = db.Column(db.Integer, nullable=False)  # e.g., 1–5 stars
+    rating = db.Column(db.Integer, nullable=False)
     comment = db.Column(db.Text, nullable=True)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
     image = db.Column(JSON, nullable=True)
-    #store_id = db.Column(db.Integer, db.ForeignKey('store.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
+product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)

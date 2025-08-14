@@ -1,6 +1,6 @@
 from core.imports import Blueprint, jwt_required, get_jwt_identity, jsonify, request
 from core.extensions import db
-from models.ordersModels import Order, Review, OrderItem
+from models.ordersModels import Order, Review
 from models.vendorModels import Product, Store
 
 orders_bp = Blueprint('orders', __name__)
