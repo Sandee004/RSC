@@ -134,6 +134,8 @@ def signup_buyer():
     name = data.get('name')
     email = data.get('email')
     phone = data.get('phone')
+    state = data.get('state')
+    country = data.get('country')
     password = data.get('password')
     referral_code_used = data.get('referral_code')
 
@@ -150,6 +152,12 @@ def signup_buyer():
         if not referrer:
             return jsonify({"message": "Invalid referral code"}), 400
 
+    if not state or not country:
+        ip_address = request.headers.get("X-Forwarded-For", request.remote_addr)
+        ip_state, ip_country = get_location_from_ip(ip_address)
+        state = state or ip_state
+        country = country or ip_country
+
     # Generate a unique referral code
     new_referral_code = generate_referral_code()
     while Buyers.query.filter_by(referral_code=new_referral_code).first():
@@ -160,6 +168,8 @@ def signup_buyer():
     new_user = Buyers(
         name=name,
         email=email,
+        state=state,
+        country=country,
         phone=phone,
         password=hashed_password,
         role="buyer",
