@@ -1,8 +1,7 @@
-from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, random, string, cloudinary, os, load_dotenv
+from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, requests, random, string, cloudinary, os, load_dotenv
 from core.config import Config
-from core.extensions import db
-from models.userModel import User
-from models.vendorModels import Store
+from core.extensions import db, bcrypt
+from models.userModel import Buyers, Vendors
 load_dotenv() 
 
 auth_bp = Blueprint('auth', __name__)
@@ -12,32 +11,46 @@ def generate_referral_code(length=8):
     """Generate a random alphanumeric referral code."""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
-
-@auth_bp.route('/api/auth/signup', methods=['POST'])
-def signup():
+def get_location_from_ip(ip_address):
     """
-    User Signup
+    Get state and country from IP address using ipinfo.io (or any GeoIP service).
+    """
+    try:
+        response = requests.get(f"https://ipinfo.io/{ip_address}/json")
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("region"), data.get("country")  # state, country
+    except Exception:
+        pass
+    return None, None
+
+@auth_bp.route('/api/auth/signup/buyer', methods=['POST'])
+def signup_buyer():
+    """
+    Buyer Signup
     ---
     tags:
       - Authentication
-    summary: Create a new user account
+    summary: Register a new buyer account
     description: >
-      This endpoint registers a new user with a name, email, and phone number.
-      Upon successful registration, the user is assigned a unique referral code. 
-      If a referral code is provided during signup, it will be recorded as the referrer.
+      This endpoint registers a new buyer with a name, email, and phone number.  
+      Upon successful registration, the buyer is assigned a unique referral code.  
+      If state and/or country are not provided, they will be automatically detected  
+      from the user's IP address. If a referral code is provided, it will be recorded as the referrer.
     consumes:
       - application/json
     parameters:
       - in: body
         name: body
         required: true
-        description: User registration data
+        description: Buyer registration data
         schema:
           type: object
           required:
             - name
             - email
             - phone
+            - password
           properties:
             name:
               type: string
@@ -48,62 +61,81 @@ def signup():
             phone:
               type: string
               example: "08012345678"
+            password:
+              type: string
+              example: pass123
+            state:
+              type: string
+              example: Lagos
+              description: Optional. If not provided, will be determined from IP
+            country:
+              type: string
+              example: Nigeria
+              description: Optional. If not provided, will be determined from IP
             referral_code:
               type: string
               example: "ABCD1234"
-              description: Optional referral code from another user
+              description: Optional referral code from another buyer
     responses:
       201:
-        description: User created successfully
+        description: Buyer created successfully
         schema:
           type: object
           properties:
             message:
               type: string
-              example: User created successfully
+              example: Buyer created successfully
             access_token:
               type: string
               example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
             referral_code:
               type: string
               example: XYZ789AB
-              description: The referral code assigned to the new user
+              description: The referral code assigned to the new buyer
+            state:
+              type: string
+              example: Lagos
+            country:
+              type: string
+              example: Nigeria
       400:
         description: Missing required fields
       409:
-        description: Email or name already exists
+        description: Email already exists
     """
+
     data = request.get_json()
     name = data.get('name')
     email = data.get('email')
     phone = data.get('phone')
+    password = data.get('password')
     referral_code_used = data.get('referral_code')
 
-    if not name or not email or not phone:
+    if not name or not email or not phone or not password:
         return jsonify({"message": "All fields are required"}), 400
 
-    if User.query.filter_by(email=email).first():
+    if Buyers.query.filter_by(email=email).first():
         return jsonify({"message": "Email already exists. Try logging in."}), 409
 
-    if User.query.filter_by(name=name).first():
-        return jsonify({"message": "Name already exists. Please choose another."}), 409
-
-    # Validate referral code
+    # Remember to revisit this logic
     referrer = None
     if referral_code_used:
-        referrer = User.query.filter_by(referral_code=referral_code_used).first()
+        referrer = Buyers.query.filter_by(referral_code=referral_code_used).first()
         if not referrer:
             return jsonify({"message": "Invalid referral code"}), 400
 
     # Generate a unique referral code
     new_referral_code = generate_referral_code()
-    while User.query.filter_by(referral_code=new_referral_code).first():
+    while Buyers.query.filter_by(referral_code=new_referral_code).first():
         new_referral_code = generate_referral_code()
 
-    new_user = User(
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+
+    new_user = Buyers(
         name=name,
         email=email,
         phone=phone,
+        password=hashed_password,
         role="buyer",
         referral_code=new_referral_code,
         referred_by=referrer.referral_code if referrer else None
@@ -111,7 +143,162 @@ def signup():
 
     db.session.add(new_user)
     db.session.commit()
-    access_token = create_access_token(identity=new_user.id)
+    access_token = create_access_token(identity={"id": new_user.id, "role": "buyer"})
+
+    return jsonify({
+        "message": "User created successfully",
+        "access_token": access_token,
+        "referral_code": new_user.referral_code
+    }), 201
+
+
+@auth_bp.route('/api/auth/signup/vendor', methods=['POST'])
+def signup_vendor():
+    """
+    Vendor Signup
+    ---
+    tags:
+      - Authentication
+    summary: Register a new vendor account
+    description: >
+      This endpoint registers a new vendor with personal and business details.  
+      Upon successful registration, the vendor is assigned a unique referral code.  
+      If state and/or country are not provided, they will be automatically detected  
+      from the user's IP address. If a referral code is provided, it will be recorded as the referrer.
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        description: Vendor registration data
+        schema:
+          type: object
+          required:
+            - firstname
+            - lastname
+            - business_name
+            - business_type
+            - email
+            - phone
+            - password
+          properties:
+            firstname:
+              type: string
+              example: John
+            lastname:
+              type: string
+              example: Doe
+            business_name:
+              type: string
+              example: Doe Enterprises
+            business_type:
+              type: string
+              example: Retail
+            email:
+              type: string
+              example: vendor@example.com
+            phone:
+              type: string
+              example: "08012345678"
+            password:
+              type: string
+              example: pass123
+            state:
+              type: string
+              example: Lagos
+              description: Optional. If not provided, will be determined from IP
+            country:
+              type: string
+              example: Nigeria
+              description: Optional. If not provided, will be determined from IP
+            referral_code:
+              type: string
+              example: "ABCD1234"
+              description: Optional referral code from another vendor
+    responses:
+      201:
+        description: Vendor created successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Vendor created successfully
+            access_token:
+              type: string
+              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+            referral_code:
+              type: string
+              example: XYZ789AB
+              description: The referral code assigned to the new vendor
+            state:
+              type: string
+              example: Lagos
+            country:
+              type: string
+              example: Nigeria
+      400:
+        description: Missing required fields
+      409:
+        description: Email already exists
+    """
+    data = request.get_json()
+    firstname = data.get('firstname')
+    lastname = data.get('lastname')
+    business_name = data.get('business_name')
+    phone = data.get('phone')
+    business_type = data.get('business_type')
+    email = data.get('email')
+    password = data.get('password')
+    state = data.get("state")
+    country = data.get("country")
+
+    referral_code_used = data.get('referral_code')
+
+    if not all([firstname, lastname, business_name, business_type, email, phone, password]):
+        return jsonify({"message": "All fields except state and country are required"}), 400
+
+    if Vendors.query.filter_by(email=email).first():
+        return jsonify({"message": "Email already exists. Try logging in."}), 409
+
+    # Remember to revisit this logic
+    referrer = None
+    if referral_code_used:
+        referrer = Vendors.query.filter_by(referral_code=referral_code_used).first()
+        if not referrer:
+            return jsonify({"message": "Invalid referral code"}), 400
+
+    if not state or not country:
+        ip_address = request.headers.get("X-Forwarded-For", request.remote_addr)
+        ip_state, ip_country = get_location_from_ip(ip_address)
+        state = state or ip_state
+        country = country or ip_country
+
+    # Generate a unique referral code
+    new_referral_code = generate_referral_code()
+    while Vendors.query.filter_by(referral_code=new_referral_code).first():
+        new_referral_code = generate_referral_code()
+
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+
+    new_user = Vendors(
+        firstname=firstname,
+        lastname=lastname,
+        business_name=business_name,
+        business_type=business_type,
+        email=email,
+        phone=phone,
+        state=state,
+        country=country,
+        password=hashed_password,
+        referral_code=new_referral_code,
+        referred_by=referrer.referral_code if referrer else None
+    )
+
+    db.session.add(new_user)
+    db.session.commit()
+    access_token = create_access_token(identity={"id": new_user.id, "role": "vendor"})
 
     return jsonify({
         "message": "User created successfully",
@@ -128,7 +315,7 @@ def login():
     tags:
       - Authentication
     summary: Authenticate user and get JWT
-    description: Logs in a user using their name and email, returning a JWT access token if successful.
+    description: Logs in a user (Buyer or Vendor) using their email and password, returning a JWT access token if successful.
     consumes:
       - application/json
     parameters:
@@ -139,15 +326,15 @@ def login():
         schema:
           type: object
           required:
-            - name
             - email
+            - password
           properties:
-            name:
-              type: string
-              example: johndoe
             email:
               type: string
               example: example@example.com
+            password:
+              type: string
+              example: pass123
     responses:
       200:
         description: Login successful
@@ -163,41 +350,44 @@ def login():
             user:
               type: object
               properties:
-                name:
-                  type: string
-                  example: johndoe
                 email:
                   type: string
                   example: johndoe@example.com
-                phone:
+                role:
                   type: string
-                  example: "+2348012345678"
+                  example: buyer
       400:
-        description: Missing name or email
+        description: Missing email or password
       401:
         description: Invalid credentials
     """
     data = request.get_json()
-    name = data.get('name')
     email = data.get('email')
+    password = data.get('password')
 
-    if not name or not email:
-        return jsonify({"message": "Name and email are required"}), 400
+    if not email or not password:
+        return jsonify({"message": "Email and password are required"}), 400
 
-    # Match against existing user
-    user = User.query.filter_by(name=name, email=email).first()
+    # Try to fnd it in eiter buyers or vendors table
+    user = Buyers.query.filter_by(email=email).first()
+    role = "buyer"
 
     if not user:
+        user = Vendors.query.filter_by(email=email).first()
+        role = "vendor"
+
+    if not user or not bcrypt.check_password_hash(user.password, password):
         return jsonify({"message": "Invalid credentials"}), 401
 
-    access_token = create_access_token(identity=user.id)
+    # Generate JWT
+    access_token = create_access_token(identity={"id": user.id, "role": role})
+
     return jsonify({
         "message": "Login successful",
         "access_token": access_token,
         "user": {
-            "name": user.name,
             "email": user.email,
-            "phone": user.phone,
+            "role": role
         }
     }), 200
 
@@ -226,41 +416,49 @@ def profile():
       404:
         description: User not found
     """
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    identity = get_jwt_identity()   # {"id": user.id, "type": "buyer" or "vendor"}
+    print(identity)
+    user_id = identity.get("id")
+    user_type = identity.get("role")
 
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    user_data = {}
 
-    user_data = {
-        "id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "phone": user.phone,
-        "role": user.role,
-        "kyc_status": user.kyc_status,
-        "referral_code": user.referral_code,
-        "referred_by": user.referred_by,
-        "credits": user.credits,
-        "created_at": user.created_at.isoformat()
-    }
+    if user_type == "buyer":
+        user = Buyers.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
 
-    if user.role.lower() == "vendor":
-        store = Store.query.filter_by(vendor_id=user.id).first()
-        if store:
-            user_data["store"] = {
-                "id": store.id,
-                "name": store.name,
-                "description": store.description,
-                "banner": store.banner,
-                "location": store.location,
-                "slug": store.slug,
-                "verified": store.verified,
-                "custom_domain": store.custom_domain,
-                "created_at": store.created_at.isoformat()
-            }
-        else:
-            user_data["store"] = None  # Vendor has no store yet
+        user_data = {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "role": user.role,
+            "referral_code": user.referral_code,
+            "referred_by": user.referred_by,
+        }
+
+    elif user_type == "vendor":
+        user = Vendors.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        user_data = {
+            "id": user.id,
+            "firstname": user.firstname,
+            "lastname": user.lastname,
+            "business_name": user.business_name,
+            "business_type": user.business_type,
+            "email": user.email,
+            "phone": user.phone,
+            "role": "vendor",
+            "kyc_status": user.kyc_status,
+            "referral_code": user.referral_code,
+            "referred_by": user.referred_by,
+        }
+
+    else:
+        return jsonify({"error": "Invalid user type"}), 400
 
     return jsonify(user_data), 200
 
@@ -306,52 +504,81 @@ def update_profile_details():
     responses:
       200:
         description: User updated successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: User details updated successfully
-            user:
-              type: object
-              properties:
-                name:
-                  type: string
-                email:
-                  type: string
-                phone:
-                  type: string
       400:
         description: No update data provided
+      404:
+        description: User not found
       409:
         description: Email already in use
     """
-    user_id = get_jwt_identity()
-    data = request.get_json()
+    identity = get_jwt_identity()  # {"id": ..., "type": ...}
+    user_id = identity.get("id")
+    user_type = identity.get("type")
 
+    data = request.get_json()
     if not data:
         return jsonify({"message": "No data provided"}), 400
 
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-
     updated = False
 
-    if 'name' in data and data['name']:
-        user.name = data['name']
-        updated = True
+    if user_type == "buyer":
+        user = Buyers.query.get(user_id)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
 
-    if 'email' in data and data['email']:
-        existing_email = User.query.filter(User.email == data['email'], User.id != user.id).first()
-        if existing_email:
-            return jsonify({"message": "Email already in use"}), 409
-        user.email = data['email']
-        updated = True
+        if 'name' in data and data['name']:
+            user.name = data['name']
+            updated = True
 
-    if 'phone' in data and data['phone']:
-        user.phone = data['phone']
-        updated = True
+        if 'email' in data and data['email']:
+            # check conflict across BOTH Buyers and Vendors
+            email_conflict = (Buyers.query.filter(Buyers.email == data['email'], Buyers.id != user.id).first() or
+                              Vendors.query.filter_by(email=data['email']).first())
+            if email_conflict:
+                return jsonify({"message": "Email already in use"}), 409
+            user.email = data['email']
+            updated = True
+
+        if 'phone' in data and data['phone']:
+            user.phone = data['phone']
+            updated = True
+
+    elif user_type == "vendor":
+        user = Vendors.query.get(user_id)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+
+        if 'firstname' in data and data['firstname']:
+            user.firstname = data['firstname']
+            updated = True
+
+        if 'lastname' in data and data['lastname']:
+            user.lastname = data['lastname']
+            updated = True
+
+        if 'business_name' in data and data['business_name']:
+            user.business_name = data['business_name']
+            updated = True
+
+        if 'business_type' in data and data['business_type']:
+            user.business_type = data['business_type']
+            updated = True
+
+        if 'email' in data and data['email']:
+            # check conflict across BOTH Vendors and Buyers
+            email_conflict = (Vendors.query.filter(Vendors.email == data['email'], Vendors.id != user.id).first() or
+                              Buyers.query.filter_by(email=data['email']).first())
+            if email_conflict:
+                return jsonify({"message": "Email already in use"}), 409
+            user.email = data['email']
+            updated = True
+
+        if 'phone' in data and data['phone']:
+            user.phone = data['phone']
+            updated = True
+
+    else:
+        return jsonify({"message": "Invalid user type"}), 400
 
     if not updated:
         return jsonify({"message": "No fields were updated"}), 204
@@ -361,13 +588,22 @@ def update_profile_details():
     return jsonify({
         "message": "User details updated successfully",
         "user": {
-            "name": user.name,
+            "id": user.id,
             "email": user.email,
             "phone": user.phone,
-            "referral_code": user.referral_code
+            **(
+                {"name": user.name, "role": user.role, "referral_code": user.referral_code}
+                if user_type == "buyer"
+                else {
+                    "firstname": user.firstname,
+                    "lastname": user.lastname,
+                    "business_name": user.business_name,
+                    "business_type": user.business_type,
+                    "referral_code": user.referral_code,
+                }
+            )
         }
     }), 200
-
 
 
 @auth_bp.route('/api/user/kyc-status', methods=['GET'])
@@ -378,8 +614,8 @@ def get_kyc_status():
     ---
     tags:
       - User
-    summary: Retrieve the authenticated user's KYC status
-    description: Returns the current KYC verification status for the logged-in user.
+    summary: Retrieve the authenticated vendor's KYC status
+    description: Returns the current KYC verification status for the logged-in vendor.
     security:
       - Bearer: []
     parameters:
@@ -392,7 +628,7 @@ def get_kyc_status():
           example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
     responses:
       200:
-        description: Successfully retrieved the user's KYC status
+        description: Successfully retrieved the vendor's KYC status
         schema:
           type: object
           properties:
@@ -404,20 +640,22 @@ def get_kyc_status():
               example: "verified"
       401:
         description: Unauthorized — missing or invalid JWT token
+      403:
+        description: Forbidden — only vendors can access this endpoint
       404:
-        description: User not found
+        description: Vendor not found
     """
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    identity = get_jwt_identity()   # {"id": ..., "type": ...}
+    user_id = identity.get("id")
 
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    vendor = Vendors.query.get(user_id)
+    if not vendor:
+        return jsonify({"error": "Vendor not found"}), 404
 
     return jsonify({
-        "id": user.id,
-        "kyc_status": user.kyc_status,
+        "id": vendor.id,
+        "kyc_status": vendor.kyc_status,
     }), 200
-
 
 
 @auth_bp.route('/api/user/kyc', methods=['POST'])
@@ -481,7 +719,7 @@ responses:
     description: User not found
     """
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = Vendors.query.get(current_user_id)
 
     if not user:
         return jsonify({"error": "User not found"}), 404
@@ -520,10 +758,11 @@ responses:
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
+"""
 @auth_bp.route('/api/referrals', methods=['GET'])
 @jwt_required()
 def referral_stat():
-    """
+    ""
     Get Referral Statistics
     ---
     tags:
@@ -554,7 +793,7 @@ def referral_stat():
         description: Unauthorized — missing or invalid JWT token
       404:
         description: User not found
-    """
+    "
     user_id = get_jwt_identity()
     user = User.query.get(user_id)
 
@@ -567,3 +806,4 @@ def referral_stat():
         "referral_code": user.referral_code,
         "referral_count": referral_count
     }), 200
+"""

@@ -2,9 +2,7 @@ from core.imports import jsonify, text, inspect, Flask
 from core.config import Config
 from core.extensions import db, jwt, swagger, cors, bcrypt, migrate
 from routes.auth import auth_bp
-from routes.vendor import vendor_bp
-from routes.marketplace import marketplace_bp
-from routes.orders import orders_bp
+from routes.admin import admin_bp
 
 def create_app():
     app = Flask(__name__)
@@ -18,8 +16,9 @@ def create_app():
     migrate.init_app(app, db)
 
     app.register_blueprint(auth_bp)
-    app.register_blueprint(vendor_bp)
-    app.register_blueprint(marketplace_bp)
+    app.register_blueprint(admin_bp)
+    #app.register_blueprint(vendor_bp)
+    #app.register_blueprint(marketplace_bp)
 
     return app
 
@@ -48,7 +47,6 @@ def view_db():
 
 if __name__ == "__main__":
     with app.app_context():
-        db.drop_all()
         db.create_all()
 
     app.run(debug=True)
