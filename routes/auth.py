@@ -24,6 +24,32 @@ def get_location_from_ip(ip_address):
         pass
     return None, None
 
+def seed_demo_vendor():
+    vendor = Vendors.query.filter_by(email="demo@vendor.com").first()
+    if not vendor:
+        raw_password = "password123"  # demo login password
+        hashed_password = bcrypt.generate_password_hash(raw_password).decode('utf-8')
+
+        vendor = Vendors(
+            firstname="John",
+            lastname="Doe",
+            business_name="Demo Store",
+            business_type="Retail",
+            email="demo@vendor.com",
+            phone="08012345678",
+            password=hashed_password,  # ✅ store bcrypt hash
+            state="Lagos",
+            country="Nigeria",
+            referral_code="DEMO123"
+        )
+        db.session.add(vendor)
+        db.session.commit()
+
+        print(f"✅ Demo vendor created (email=demo@vendor.com, password={raw_password})")
+    else:
+        print("ℹ️ Demo vendor already exists.")
+    return vendor
+
 @auth_bp.route('/api/auth/signup/buyer', methods=['POST'])
 def signup_buyer():
     """
@@ -604,6 +630,108 @@ def update_profile_details():
             )
         }
     }), 200
+
+
+@auth_bp.route("/api/upload-profile-pic", methods=["POST"])
+@jwt_required()
+def upload_profile_pic():
+    """
+    Upload or update profile picture (Buyer or Vendor)
+    ---
+    tags:
+      - Authentication
+    summary: Upload profile picture for authenticated user
+    description: Allows a logged-in Buyer or Vendor to upload or update their profile picture.
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: Authorization
+        in: header
+        description: "JWT token as: Bearer <your_token>"
+        required: true
+        type: string
+      - name: profile_pic
+        in: formData
+        description: "Profile picture file (jpg, png, etc.)"
+        required: true
+        type: file
+    responses:
+      200:
+        description: Profile picture uploaded successfully
+        schema:
+          type: object
+          properties:
+            profile_pic_url:
+              type: string
+              example: "https://res.cloudinary.com/demo/image/upload/v1234567890/dcraft/profile_pics/user_1_profile.jpg"
+      400:
+        description: No image uploaded
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "No image uploaded"
+      404:
+        description: User not found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "User not found"
+      500:
+        description: Upload failed (Cloudinary or server error)
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Failed to upload image"
+    """
+    identity = get_jwt_identity()
+    user_id = identity.get("id")
+    role = identity.get("role")
+
+    # Check in the correct model
+    if role == "buyer":
+        user = Buyers.query.get(user_id)
+    elif role == "vendor":
+        user = Vendors.query.get(user_id)
+    else:
+        return jsonify({"message": "User not found"}), 404
+
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    if "profile_pic" not in request.files:
+        return jsonify({"message": "No image uploaded"}), 400
+
+    file = request.files["profile_pic"]
+
+    try:
+        upload_result = cloudinary.uploader.upload(
+            file,
+            folder="dcraft/profile_pics",
+            public_id=f"{role}_{user.id}_profile",
+            overwrite=True,
+            transformation={"width": 300, "height": 300, "crop": "fill"},
+        )
+
+        profile_pic_url = upload_result.get("secure_url")
+        if not profile_pic_url:
+            return jsonify({"message": "Cloudinary upload failed"}), 500
+
+        user.profile_pic = profile_pic_url
+        db.session.commit()
+
+        return jsonify({"profile_pic_url": profile_pic_url}), 200
+
+    except Exception as e:
+        print("Cloudinary upload error:", e)
+        return jsonify({"message": "Failed to upload image"}), 500
 
 
 @auth_bp.route('/api/user/kyc-status', methods=['GET'])
