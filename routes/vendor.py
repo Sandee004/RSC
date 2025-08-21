@@ -1,5 +1,5 @@
 from core.imports import Blueprint, request, jsonify, jwt_required, get_jwt_identity
-from models.vendorModels import Category, Products
+from models.vendorModels import Category, Products, Storefront
 from models.userModel import Vendors
 from core.extensions import db
 
@@ -537,3 +537,246 @@ def edit_product(product_id):
             }
         }
     }), 200
+
+
+@vendor_bp.route('/api/vendor/storefront', methods=['GET'])
+@jwt_required()
+def get_storefront_details():
+    """
+    Get storefront details for the logged-in vendor
+    ---
+    tags:
+      - Vendor
+    security:
+      - Bearer: []
+    parameters:
+      - name: Authorization
+        in: header
+        description: "JWT token as: Bearer <your_token>"
+        required: true
+        type: string
+    responses:
+      200:
+        description: Storefront details retrieved successfully
+        schema:
+          type: object
+          properties:
+            storefront:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 3
+                business_name:
+                  type: string
+                  example: "Tech World"
+                description:
+                  type: string
+                  example: "Your one-stop shop for electronics."
+                state:
+                  type: string
+                  example: "Lagos"
+                phone:
+                  type: string
+                  example: "08012345678"
+                country:
+                  type: string
+                  example: "Nigeria"
+                email:
+                  type: string
+                  example: "vendor@example.com"
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    example: 1
+                  product_name:
+                    type: string
+                    example: "Smartphone X10"
+                  product_price:
+                    type: number
+                    example: 120000
+                  description:
+                    type: string
+                    example: "Latest model smartphone with AI camera."
+                  images:
+                    type: array
+                    items:
+                      type: string
+                    example: ["https://cdn.com/img1.jpg", "https://cdn.com/img2.jpg"]
+                  status:
+                    type: string
+                    example: "active"
+                  visibility:
+                    type: boolean
+                    example: true
+                  category:
+                    type: string
+                    example: "Electronics"
+      404:
+        description: Storefront not found
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Storefront not found"
+    """
+    current_vendor = get_jwt_identity()
+    current_vendor_id = current_vendor.get("id")
+
+    storefront = Storefront.query.filter_by(vendor_id=current_vendor_id).first()
+
+    if not storefront:
+        return jsonify({"error": "Storefront not found"}), 404
+
+    vendor = storefront.vendor
+
+    products = [
+        {
+            "id": product.id,
+            "product_name": product.product_name,
+            "product_price": product.product_price,
+            "description": product.description,
+            "images": product.product_images,
+            "status": product.status,
+            "visibility": product.visibility,
+            "category": product.category.name if product.category else None
+        }
+        for product in vendor.products
+    ]
+
+    return jsonify({
+        "storefront": {
+            "id": storefront.id,
+            "business_name": storefront.business_name,
+            "description": storefront.description,
+            "state": vendor.state,
+            "phone": vendor.phone,
+            "country": vendor.country,
+            "email": vendor.email
+        },
+        "products": products
+    }), 200
+
+
+@vendor_bp.route('/api/vendor/storefront', methods=['PUT'])
+@jwt_required()
+def update_storefront():
+    """
+    Update storefront details for the logged-in vendor
+    ---
+    tags:
+      - Vendor
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    parameters:
+      - name: Authorization
+        in: header
+        description: "JWT token as: Bearer <your_token>"
+        required: true
+        type: string
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            business_name:
+              type: string
+              example: "Tech World Updated"
+            business_banner:
+              type: array
+              items:
+                type: string
+              example: ["https://cdn.com/banner1.jpg", "https://cdn.com/banner2.jpg"]
+            description:
+              type: string
+              example: "We sell the latest gadgets and electronics."
+    responses:
+      200:
+        description: Storefront updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Storefront updated successfully"
+            storefront:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 3
+                business_name:
+                  type: string
+                  example: "Tech World Updated"
+                business_banner:
+                  type: array
+                  items:
+                    type: string
+                  example: ["https://cdn.com/banner1.jpg"]
+                description:
+                  type: string
+                  example: "We sell the latest gadgets and electronics."
+                established_at:
+                  type: string
+                  example: "2025-01-10T12:00:00"
+                ratings:
+                  type: number
+                  example: 4.5
+      400:
+        description: Invalid request (e.g., bad field types)
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Invalid request data"
+      404:
+        description: Storefront not found
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Storefront not found"
+    """
+    current_vendor = get_jwt_identity()
+    current_vendor_id = current_vendor.get("id")
+
+    storefront = Storefront.query.filter_by(vendor_id=current_vendor_id).first()
+    if not storefront:
+        return jsonify({"error": "Storefront not found"}), 404
+
+    data = request.get_json()
+
+    # Update fields only if provided
+    if "business_name" in data:
+        storefront.business_name = data["business_name"]
+    if "business_banner" in data:
+        storefront.business_banner = data["business_banner"]  # expects a list (JSON column)
+    if "description" in data:
+        storefront.description = data["description"]
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Storefront updated successfully",
+        "storefront": {
+            "id": storefront.id,
+            "business_name": storefront.business_name,
+            "business_banner": storefront.business_banner,
+            "description": storefront.description,
+            "established_at": storefront.established_at,
+            "ratings": storefront.ratings
+        }
+    }), 200
+
+
+

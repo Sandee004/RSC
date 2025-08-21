@@ -21,3 +21,15 @@ class Products(db.Model):
 
     vendor_id = db.Column(db.Integer, db.ForeignKey('vendors.id'), nullable=False)
     vendor = db.relationship('Vendors', backref='products')
+
+
+class Storefront(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    business_name = db.Column(db.String(150), nullable=False)
+    business_banner = db.Column(JSON, nullable=True)
+    description = db.Column(db.Text, default="")
+    established_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ratings = db.Column(db.Float, default=0.0)
+    vendor_id = db.Column(db.Integer, db.ForeignKey('vendors.id'), unique=True, nullable=False)
+
+    vendor = db.relationship('Vendors', backref=db.backref('storefront', uselist=False))

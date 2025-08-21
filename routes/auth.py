@@ -1,7 +1,8 @@
-from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, requests, random, string, cloudinary, os, load_dotenv
+from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, requests, random, string, cloudinary, os, load_dotenv, datetime
 from core.config import Config
 from core.extensions import db, bcrypt
 from models.userModel import Buyers, Vendors
+from models.vendorModels import Storefront
 load_dotenv() 
 
 auth_bp = Blueprint('auth', __name__)
@@ -334,12 +335,27 @@ def signup_vendor():
 
     db.session.add(new_user)
     db.session.commit()
+
+    new_storefront = Storefront(
+        business_name=business_name,
+        description="",
+        established_at=datetime.utcnow(),
+        vendor_id=new_user.id
+    )
+    db.session.add(new_storefront)
+    db.session.commit()
+
     access_token = create_access_token(identity={"id": new_user.id, "role": "vendor"})
 
     return jsonify({
-        "message": "User created successfully",
+        "message": "Vendor created successfully",
         "access_token": access_token,
-        "referral_code": new_user.referral_code
+        "referral_code": new_user.referral_code,
+        "storefront": {
+            "id": new_storefront.id,
+            "business_name": new_storefront.business_name,
+            "description": new_storefront.description
+        }
     }), 201
 
 
