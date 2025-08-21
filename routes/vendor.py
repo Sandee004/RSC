@@ -302,35 +302,22 @@ def add_product():
               type: string
               example: "Image upload failed"
     """
-    current_vendor_id = get_jwt_identity()  # vendor ID from JWT
+    current_vendor = get_jwt_identity()   # dict -> {"id": 1, "role": "vendor"}
+    current_vendor_id = current_vendor.get("id")
+
     data = request.get_json()
 
-    # Retain your fields
     product_name = data.get('product_name')
     description = data.get('description')
     category_name = data.get('category')
-    status = data.get('status', 'active')         # default = active
-    visibility = data.get('visibility', True)     # default = True
-    base64_images = data.get('images', [])
+    status = data.get('status', 'active')
+    visibility = data.get('visibility', True)
+    product_images = data.get('images', [])   # keep as list for JSON
     product_price = data.get('product_price')
 
     # Validate required fields
     if not all([product_name, product_price, category_name, description]):
         return jsonify({"error": "Missing required fields"}), 400
-
-    # Upload images to Cloudinary (optional)
-    uploaded_image_urls = []
-    """
-    for base64_str in base64_images:
-        try:
-            upload_response = cloudinary.uploader.upload(
-                f"data:image/jpeg;base64,{base64_str}"
-            )
-            uploaded_image_urls.append(upload_response.get("secure_url"))
-        except Exception as e:
-            print("Upload error:", e)
-            return jsonify({"error": "Image upload failed"}), 500
-    """
 
     # Ensure category exists
     category = Category.query.filter_by(name=category_name).first()
@@ -339,14 +326,14 @@ def add_product():
         db.session.add(category)
         db.session.commit()
 
-    # Create product tied to vendor
+    # Create product
     new_product = Products(
         product_name=product_name,
         product_price=float(product_price),
         description=description,
-        product_images=uploaded_image_urls,
+        product_images=product_images,   # SQLAlchemy JSON will handle list
         category_id=category.id,
-        vendor_id=current_vendor_id,   # 🔑 vendor link
+        vendor_id=current_vendor_id,     # ✅ just the int ID
         status=status,
         visibility=visibility
     )
