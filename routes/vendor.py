@@ -156,7 +156,9 @@ def get_my_products():
               type: string
               example: "Unauthorized"
     """
-    current_vendor_id = get_jwt_identity()
+    current_vendor = get_jwt_identity()   # dict -> {"id": 1, "role": "vendor"}
+    current_vendor_id = current_vendor.get("id")
+
 
     products = Products.query.filter_by(vendor_id=current_vendor_id).order_by(Products.id.desc()).all()
 
@@ -479,7 +481,8 @@ def edit_product(product_id):
               type: string
               example: "Product not found or not authorized"
     """
-    current_vendor_id = get_jwt_identity()
+    current_vendor = get_jwt_identity()   # dict -> {"id": 1, "role": "vendor"}
+    current_vendor_id = current_vendor.get("id")
     data = request.get_json()
 
     # Fetch product and ensure vendor owns it
