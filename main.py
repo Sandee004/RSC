@@ -1,7 +1,7 @@
 from core.imports import jsonify, text, inspect, Flask
 from core.config import Config
 from core.extensions import db, jwt, swagger, cors, bcrypt, migrate
-from routes.auth import auth_bp, seed_demo_vendor
+from routes.auth import auth_bp, seed_demo_vendor, seed_demo_buyer
 from routes.admin import admin_bp
 from routes.vendor import seed_categories, seed_products, vendor_bp
 from routes.marketplace import marketplace_bp
@@ -54,6 +54,7 @@ if __name__ == "__main__":
         db.create_all()
 
         seed_demo_vendor()
+        seed_demo_buyer()
         seed_categories()
         seed_products()
 

@@ -12,6 +12,9 @@ class Products(db.Model):
     product_price = db.Column(db.Integer, nullable=False)
     description = db.Column(db.Text, nullable=False)
     product_images = db.Column(JSON, nullable=True)
+    condition = db.Column(db.String(100), nullable=True)
+    date_posted = db.Column(db.DateTime, default=datetime.utcnow)
+    sold_date = db.Column(db.DateTime)
 
     status = db.Column(db.String(50), default="active")   # 'active', 'inactive'
     visibility = db.Column(db.Boolean, default=True)      # True = visible, False = hidden

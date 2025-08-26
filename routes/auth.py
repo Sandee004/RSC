@@ -1,16 +1,56 @@
-from core.imports import Blueprint, jsonify, request, create_access_token, jwt_required, get_jwt_identity, requests, random, string, cloudinary, os, load_dotenv, datetime
+from core.imports import Blueprint, jsonify, request, render_template, create_access_token, jwt_required, get_jwt_identity, requests, random, string, cloudinary, os, load_dotenv, datetime, Message, timedelta
 from core.config import Config
-from core.extensions import db, bcrypt
-from models.userModel import Buyers, Vendors
+from core.extensions import db, bcrypt, mail
+from models.userModel import Buyers, Vendors, PendingBuyer, PendingVendor
 from models.vendorModels import Storefront
 load_dotenv() 
 
 auth_bp = Blueprint('auth', __name__)
 
 
+def cleanup_expired_pending():
+    now = datetime.utcnow()
+    expired_buyers = PendingBuyer.query.filter(PendingBuyer.otp_expires_at < now).all()
+    expired_vendors = PendingVendor.query.filter(PendingVendor.otp_expires_at < now).all()
+    
+    for record in expired_buyers + expired_vendors:
+        db.session.delete(record)
+    db.session.commit()
+
 def generate_referral_code(length=8):
     """Generate a random alphanumeric referral code."""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+def send_email(to, subject, body):
+    msg = Message(subject=subject, recipients=[to])
+    msg.html = body
+    try:
+        mail.send(msg)
+    except Exception as e:
+        print(f"Error sending email: {e}")
+
+def send_otp_email(email, otp, purpose="verification"):
+    # Customize content based on purpose
+    if purpose == "verification":
+        subject = "Your Account Verification OTP"
+        message = "Welcome to Bizengo! To complete your verification, please use the code below:"
+        purpose_title = "Your Verification Code"
+    elif purpose == "password_reset":
+        subject = "Your Password Reset OTP"
+        message = "We received a request to reset your password. Use the code below to proceed:"
+        purpose_title = "Password Reset Code"
+    else:
+        raise ValueError("Invalid OTP purpose.")
+
+    body = render_template(
+        'email.html',
+        otp=otp,
+        message=message,
+        purpose_title=purpose_title,
+        year=datetime.now().year
+    )
+
+    send_email(email, subject, body)
 
 def get_location_from_ip(ip_address):
     """
@@ -50,6 +90,30 @@ def seed_demo_vendor():
     else:
         print("ℹ️ Demo vendor already exists.")
     return vendor
+
+def seed_demo_buyer():
+    buyer = Buyers.query.filter_by(email="demo@buyer.com").first()
+    if not buyer:
+        raw_password = "password123"  # demo login password
+        hashed_password = bcrypt.generate_password_hash(raw_password).decode('utf-8')
+
+        buyer = Buyers(
+            name="Jane Doe",
+            email="demo@buyer.com",
+            phone="08087654321",
+            password=hashed_password,
+            state="Lagos",
+            country="Nigeria",
+            role="buyer",
+            referral_code="BUYER123"
+        )
+        db.session.add(buyer)
+        db.session.commit()
+
+        print(f"✅ Demo buyer created (email=demo@buyer.com, password={raw_password})")
+    else:
+        print("ℹ️ Demo buyer already exists.")
+    return buyer
 
 @auth_bp.route('/api/auth/signup/buyer', methods=['POST'])
 def signup_buyer():
@@ -140,53 +204,44 @@ def signup_buyer():
     password = data.get('password')
     referral_code_used = data.get('referral_code')
 
-    if not name or not email or not phone or not password:
-        return jsonify({"message": "All fields are required"}), 400
+    if not all([name, email, phone, password]):
+        return jsonify({"message": "All required fields must be filled"}), 400
 
     if Buyers.query.filter_by(email=email).first():
-        return jsonify({"message": "Email already exists. Try logging in."}), 409
+        return jsonify({"message": "Account with this email already exists"}), 409
 
-    # Remember to revisit this logic
-    referrer = None
-    if referral_code_used:
-        referrer = Buyers.query.filter_by(referral_code=referral_code_used).first()
-        if not referrer:
-            return jsonify({"message": "Invalid referral code"}), 400
+    elif PendingBuyer.query.filter_by(email=email).first():
+         return jsonify({"message": "Account is pending verification"}), 409
 
+    # IP-based location if missing
     if not state or not country:
         ip_address = request.headers.get("X-Forwarded-For", request.remote_addr)
         ip_state, ip_country = get_location_from_ip(ip_address)
         state = state or ip_state
         country = country or ip_country
 
-    # Generate a unique referral code
-    new_referral_code = generate_referral_code()
-    while Buyers.query.filter_by(referral_code=new_referral_code).first():
-        new_referral_code = generate_referral_code()
-
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
-    new_user = Buyers(
+    otp_code = str(random.randint(100000, 999999))
+    otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+
+    send_otp_email(email, otp_code)    
+
+    pending = PendingBuyer(
         name=name,
         email=email,
+        phone=phone,
         state=state,
         country=country,
-        phone=phone,
         password=hashed_password,
-        role="buyer",
-        referral_code=new_referral_code,
-        referred_by=referrer.referral_code if referrer else None
+        referral_code=referral_code_used,
+        otp_code=otp_code,
+        otp_expires_at=otp_expiry
     )
-
-    db.session.add(new_user)
+    db.session.add(pending)
     db.session.commit()
-    access_token = create_access_token(identity={"id": new_user.id, "role": "buyer"})
 
-    return jsonify({
-        "message": "User created successfully",
-        "access_token": access_token,
-        "referral_code": new_user.referral_code
-    }), 201
+    return jsonify({"message": "Verification code sent to email"}), 201
 
 
 @auth_bp.route('/api/auth/signup/vendor', methods=['POST'])
@@ -284,27 +339,22 @@ def signup_vendor():
     firstname = data.get('firstname')
     lastname = data.get('lastname')
     business_name = data.get('business_name')
-    phone = data.get('phone')
     business_type = data.get('business_type')
     email = data.get('email')
-    password = data.get('password')
+    phone = data.get('phone')
     state = data.get("state")
     country = data.get("country")
-
+    password = data.get('password')
     referral_code_used = data.get('referral_code')
 
     if not all([firstname, lastname, business_name, business_type, email, phone, password]):
-        return jsonify({"message": "All fields except state and country are required"}), 400
-
+        return jsonify({"message": "Missing required fields"}), 400
+    
     if Vendors.query.filter_by(email=email).first():
-        return jsonify({"message": "Email already exists. Try logging in."}), 409
+        return jsonify({"message": "Account with this email already exists"}), 409
 
-    # Remember to revisit this logic
-    referrer = None
-    if referral_code_used:
-        referrer = Vendors.query.filter_by(referral_code=referral_code_used).first()
-        if not referrer:
-            return jsonify({"message": "Invalid referral code"}), 400
+    elif PendingVendor.query.filter_by(email=email).first():
+         return jsonify({"message": "Pending verification for this email exists"}), 409
 
     if not state or not country:
         ip_address = request.headers.get("X-Forwarded-For", request.remote_addr)
@@ -312,14 +362,14 @@ def signup_vendor():
         state = state or ip_state
         country = country or ip_country
 
-    # Generate a unique referral code
-    new_referral_code = generate_referral_code()
-    while Vendors.query.filter_by(referral_code=new_referral_code).first():
-        new_referral_code = generate_referral_code()
-
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
-    new_user = Vendors(
+    otp_code = str(random.randint(100000, 999999))
+    otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+
+    send_otp_email(email, otp_code)
+
+    pending = PendingVendor(
         firstname=firstname,
         lastname=lastname,
         business_name=business_name,
@@ -329,34 +379,93 @@ def signup_vendor():
         state=state,
         country=country,
         password=hashed_password,
-        referral_code=new_referral_code,
-        referred_by=referrer.referral_code if referrer else None
+        referral_code=referral_code_used,
+        otp_code=otp_code,
+        otp_expires_at=otp_expiry
     )
-
-    db.session.add(new_user)
+    db.session.add(pending)
     db.session.commit()
 
-    new_storefront = Storefront(
-        business_name=business_name,
-        description="",
-        established_at=datetime.utcnow(),
-        vendor_id=new_user.id
-    )
-    db.session.add(new_storefront)
+    # TODO: send email with otp_code
+    print(f"Sending OTP {otp_code} to {email}")
+
+    return jsonify({"message": "Verification code sent to email"}), 201
+
+
+@auth_bp.route('/api/auth/verify-email', methods=['POST'])
+def verify_email():
+    data = request.get_json()
+    email = data.get("email")
+    otp_code = data.get("otp")
+
+    pending_buyer = PendingBuyer.query.filter_by(email=email).first()
+    pending_vendor = PendingVendor.query.filter_by(email=email).first()
+
+    if pending_buyer:
+        pending = pending_buyer
+        role = "buyer"
+    elif pending_vendor:
+        pending = pending_vendor
+        role = "vendor"
+    else:
+        return jsonify({"message": "No pending registration found for this account"}), 404
+
+    if datetime.utcnow() > pending.otp_expires_at:
+        db.session.delete(pending)
+        db.session.commit()
+        return jsonify({"error": "OTP expired. Please request a new one."}), 400
+
+    if pending.otp_code != otp_code:
+        return jsonify({"message": "Invalid OTP"}), 400
+
+    if role == "buyer":
+        new_user = Buyers(
+            name=pending.name,
+            email=pending.email,
+            phone=pending.phone,
+            state=pending.state,
+            country=pending.country,
+            password=pending.password,
+            referral_code=generate_referral_code(),
+            referred_by=pending.referral_code
+        )
+        db.session.add(new_user)
+
+    else:  # vendor
+        new_user = Vendors(
+            firstname=pending.firstname,
+            lastname=pending.lastname,
+            business_name=pending.business_name,
+            business_type=pending.business_type,
+            email=pending.email,
+            phone=pending.phone,
+            state=pending.state,
+            country=pending.country,
+            password=pending.password,
+            referral_code=generate_referral_code(),
+            referred_by=pending.referral_code
+        )
+        db.session.add(new_user)
+        db.session.flush()
+
+        new_storefront = Storefront(
+            business_name=new_user.business_name,
+            description="",
+            established_at=datetime.utcnow(),
+            vendor_id=new_user.id
+        )
+        db.session.add(new_storefront)
+
+    db.session.delete(pending)
     db.session.commit()
 
-    access_token = create_access_token(identity={"id": new_user.id, "role": "vendor"})
+    token = create_access_token(identity={"id": new_user.id, "role": role})
 
     return jsonify({
-        "message": "Vendor created successfully",
-        "access_token": access_token,
-        "referral_code": new_user.referral_code,
-        "storefront": {
-            "id": new_storefront.id,
-            "business_name": new_storefront.business_name,
-            "description": new_storefront.description
-        }
-    }), 201
+        "message": "Email verified successfully",
+        "access_token": token,
+        "role": role
+    }), 200
 
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
@@ -442,6 +551,275 @@ def login():
             "role": role
         }
     }), 200
+
+
+@auth_bp.route('/api/auth/request-password-reset', methods=['POST'])
+def request_password_reset():
+    """
+    Request password reset OTP
+    ---
+    tags:
+      - Authentication
+    summary: Request password reset
+    description: >
+        Allows a registered user (buyer or vendor) to request a password reset.
+        An OTP will be sent to the provided email if the account exists.
+        The OTP will expire in 10 minutes.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - email
+            properties:
+              email:
+                type: string
+                format: email
+                example: user@example.com
+    responses:
+      200:
+        description: OTP sent successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Password reset OTP sent to your email
+      400:
+        description: Missing required field (email)
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Email is required
+      404:
+        description: No account found for the provided email
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: No account found with this email
+    """
+    data = request.get_json()
+    email = data.get("email")
+
+    if not email:
+        return jsonify({"message": "Email is required"}), 400
+
+    # Check if user exists in Buyers or Vendors
+    user = Buyers.query.filter_by(email=email).first() or Vendors.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"message": "No account found with this email"}), 404
+
+    # Generate OTP
+    otp_code = str(random.randint(100000, 999999))
+    otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+
+    # Save to a dedicated password reset table OR reuse PendingBuyer/Vendor
+    reset = PendingBuyer(
+        email=email,
+        otp_code=otp_code,
+        otp_expires_at=otp_expiry
+    )
+    db.session.add(reset)
+    db.session.commit()
+
+    send_otp_email(email, otp_code, purpose="password_reset")
+    return jsonify({"message": "Password reset OTP sent to your email"}), 200
+
+
+@auth_bp.route('/api/auth/verify-password-reset', methods=['POST'])
+def verify_password_reset():
+    """
+    Verify password reset OTP
+    ---
+    tags:
+      - Authentication
+    summary: Verify password reset OTP
+    description: >
+        Verifies the OTP sent to the user's email during the password reset process.
+        This step ensures the OTP is valid and not expired before allowing the user
+        to set a new password.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - email
+              - otp
+            properties:
+              email:
+                type: string
+                format: email
+                example: user@example.com
+              otp:
+                type: string
+                example: "123456"
+    responses:
+      200:
+        description: OTP verified successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: OTP verified. You can now reset your password
+      400:
+        description: Invalid request, expired, or incorrect OTP
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: OTP expired
+      404:
+        description: No reset request found for this email
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: No reset request found
+    """
+    data = request.get_json()
+    email = data.get("email")
+    otp_code = data.get("otp")
+
+    if not email or not otp_code:
+        return jsonify({"message": "Email and OTP are required"}), 400
+
+    reset_request = PendingBuyer.query.filter_by(email=email).first()
+
+    if not reset_request:
+        return jsonify({"message": "No reset request found"}), 404
+
+    if datetime.utcnow() > reset_request.otp_expires_at:
+        db.session.delete(reset_request)
+        db.session.commit()
+        return jsonify({"message": "OTP expired"}), 400
+
+    if reset_request.otp_code != otp_code:
+        return jsonify({"message": "Invalid OTP"}), 400
+
+    return jsonify({"message": "OTP verified. You can now reset your password"}), 200
+
+
+@auth_bp.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    """
+    Reset user password with OTP verification
+    ---
+    tags:
+      - Authentication
+    summary: Reset password
+    description: >
+        Allows a user (buyer or vendor) to reset their password using a valid OTP
+        sent to their email. The OTP must be verified and not expired.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - email
+              - otp
+              - new_password
+            properties:
+              email:
+                type: string
+                format: email
+                example: user@example.com
+              otp:
+                type: string
+                example: "123456"
+              new_password:
+                type: string
+                format: password
+                example: StrongPassw0rd!
+    responses:
+      200:
+        description: Password reset successful
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Password reset successful
+      400:
+        description: Invalid request or OTP expired
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: OTP expired
+      404:
+        description: No reset request or user account found
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: No reset request found
+    """
+    data = request.get_json()
+    email = data.get("email")
+    otp_code = data.get("otp")
+    new_password = data.get("new_password")
+
+    if not all([email, otp_code, new_password]):
+        return jsonify({"message": "Email, OTP, and new password are required"}), 400
+
+    reset_request = PendingBuyer.query.filter_by(email=email).first()
+
+    if not reset_request:
+        return jsonify({"message": "No reset request found"}), 404
+
+    if datetime.utcnow() > reset_request.otp_expires_at:
+        db.session.delete(reset_request)
+        db.session.commit()
+        return jsonify({"message": "OTP expired"}), 400
+
+    if reset_request.otp_code != otp_code:
+        return jsonify({"message": "Invalid OTP"}), 400
+
+    # Update user password
+    user = Buyers.query.filter_by(email=email).first() or Vendors.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"message": "Account not found"}), 404
+
+    hashed_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+    user.password = hashed_password
+
+    db.session.delete(reset_request)
+    db.session.commit()
+
+    return jsonify({"message": "Password reset successful"}), 200
 
 
 @auth_bp.route('/api/user/profile', methods=['GET'])

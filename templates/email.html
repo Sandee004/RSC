@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ purpose_title }} - Bizengo</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #f3f4f6;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #1f2937;
+      }
+      .wrapper {
+        max-width: 600px;
+        margin: 40px auto;
+        background-color: #ffffff;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+      }
+      .bar {
+        height: 6px;
+        background-color: #0f9d58; /* Bizengo green */
+      }
+      .content {
+        padding: 28px 24px;
+      }
+      .brand {
+        font-size: 20px;
+        font-weight: bold;
+        color: #0f9d58;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      h2 {
+        margin-top: 0;
+        font-size: 18px;
+        color: #111827;
+        text-align: center;
+      }
+      p {
+        font-size: 14px;
+        line-height: 1.5;
+        color: #374151;
+        text-align: center;
+        margin: 12px 0;
+      }
+      .otp-box {
+        margin: 24px auto;
+        padding: 20px;
+        width: fit-content;
+        border-radius: 8px;
+        background-color: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        text-align: center;
+      }
+      .otp-code {
+        font-family: monospace, Courier, monospace;
+        font-size: 28px;
+        font-weight: bold;
+        color: #0f9d58;
+        letter-spacing: 8px;
+      }
+      .note {
+        font-size: 13px;
+        color: #6b7280;
+        margin-top: 10px;
+        text-align: center;
+      }
+      .footer {
+        background-color: #f9fafb;
+        padding: 16px;
+        text-align: center;
+        font-size: 12px;
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <div class="bar"></div>
+
+      <div class="content">
+        <div class="brand">Bizengo</div>
+        <h2>{{ purpose_title }}</h2>
+        <p>{{ message }}</p>
+
+        <div class="otp-box">
+          <div class="otp-code">{{ otp }}</div>
+        </div>
+
+        <p class="note">This code will expire in 10 minutes.</p>
+        <p class="note">
+          If you didn’t request this, simply ignore this email.
+        </p>
+      </div>
+
+      <div class="footer">© {{ year }} Bizengo. All rights reserved.</div>
+    </div>
+  </body>
+</html>

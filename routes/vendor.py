@@ -1,6 +1,7 @@
 from core.imports import Blueprint, request, jsonify, jwt_required, get_jwt_identity
 from models.vendorModels import Category, Products, Storefront
 from models.userModel import Vendors
+from models.orderModels import Order
 from core.extensions import db
 
 vendor_bp = Blueprint('vendor', __name__)
@@ -312,6 +313,7 @@ def add_product():
     product_name = data.get('product_name')
     description = data.get('description')
     category_name = data.get('category')
+    condition = data.get('condition')
     status = data.get('status', 'active')
     visibility = data.get('visibility', True)
     product_images = data.get('images', [])   # keep as list for JSON
@@ -335,6 +337,7 @@ def add_product():
         description=description,
         product_images=product_images,   # SQLAlchemy JSON will handle list
         category_id=category.id,
+        condition=condition,
         vendor_id=current_vendor_id,     # ✅ just the int ID
         status=status,
         visibility=visibility
@@ -351,6 +354,7 @@ def add_product():
             "product_price": new_product.product_price,
             "description": new_product.description,
             "category": category.name,
+            "condition": condition.name,
             "images": new_product.product_images,
             "status": new_product.status,
             "visibility": new_product.visibility,
@@ -503,6 +507,9 @@ def edit_product(product_id):
     if "description" in data:
         product.description = data["description"]
 
+    if "condition" in data:
+      product.condition = data["condition"]
+
     if "status" in data:
         product.status = data["status"]
 
@@ -529,6 +536,7 @@ def edit_product(product_id):
             "product_name": product.product_name,
             "product_price": product.product_price,
             "description": product.description,
+            "condition": product.condition.name,
             "category": product.category.name,
             "images": product.product_images,
             "status": product.status,
@@ -540,6 +548,41 @@ def edit_product(product_id):
             }
         }
     }), 200
+
+
+@vendor_bp.route('/api/vendor/delete-product/<int:product_id>', methods=['DELETE'])
+@jwt_required()
+def delete_product(product_id):
+    """
+    Delete a product by ID for the logged-in vendor.
+    - Hard delete if no orders exist.
+    - Soft delete if orders are linked.
+    """
+    current_vendor = get_jwt_identity()
+    current_vendor_id = current_vendor.get("id")
+
+    product = Products.query.get(product_id)
+
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+
+    if product.vendor_id != current_vendor_id:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    # Check if product is used in orders
+    has_orders = Order.query.filter_by(product_id=product.id).first() is not None
+
+    if has_orders:
+        # Soft delete
+        product.status = "inactive"
+        product.visibility = False
+        db.session.commit()
+        return jsonify({"message": "Product archived (soft delete) since it has orders"}), 200
+    else:
+        # Hard delete
+        db.session.delete(product)
+        db.session.commit()
+        return jsonify({"message": "Product deleted permanently"}), 200
 
 
 @vendor_bp.route('/api/vendor/storefront', methods=['GET'])
@@ -780,6 +823,5 @@ def update_storefront():
             "ratings": storefront.ratings
         }
     }), 200
-
 
 
