@@ -160,11 +160,11 @@ def get_vendor_orders():
     orders_map = {}
     for item in order_items:
         order = item.order
-        buyer = Buyers.query.get(order.user_id)
+        buyer = Buyers.query.get(order.buyer_id)
         if order.id not in orders_map:
             orders_map[order.id] = {
                 "order_id": order.id,
-                "buyer_id": order.user_id,
+                "buyer_id": order.buyer_id,
                 "buyer_name": buyer.name if buyer else None,
                 "buyer_email": buyer.email if buyer else None,
                 "status": order.status,
@@ -274,11 +274,11 @@ def get_vendor_order(order_id):
         return jsonify({"message": "Order not found or no products for this vendor"}), 404
 
     order = order_items[0].order
-    buyer = Buyers.query.get(order.user_id)
+    buyer = Buyers.query.get(order.buyer_id)
 
     return jsonify({
         "order_id": order.id,
-        "buyer_id": order.user_id,
+        "buyer_id": order.buyer_id,
         "buyer_name": buyer.name if buyer else None,
         "buyer_email": buyer.email if buyer else None,
         "created_at": order.created_at.strftime("%Y-%m-%d %H:%M"),
