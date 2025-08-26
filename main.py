@@ -5,7 +5,9 @@ from routes.auth import auth_bp, seed_demo_vendor, seed_demo_buyer
 from routes.admin import admin_bp
 from routes.vendor import seed_categories, seed_products, vendor_bp
 from routes.marketplace import marketplace_bp
-from routes.buyers import cart_bp
+from routes.cart import cart_bp
+from routes.buyerOrders import buyer_orders
+from routes.vendorOrders import vendor_orders, seed_demo_orders
 
 def create_app():
     app = Flask(__name__)
@@ -23,6 +25,8 @@ def create_app():
     app.register_blueprint(vendor_bp)
     app.register_blueprint(marketplace_bp)
     app.register_blueprint(cart_bp)
+    app.register_blueprint(buyer_orders)
+    app.register_blueprint(vendor_orders)
 
     return app
 
@@ -57,5 +61,6 @@ if __name__ == "__main__":
         seed_demo_buyer()
         seed_categories()
         seed_products()
+        seed_demo_orders()
 
     app.run(debug=True)

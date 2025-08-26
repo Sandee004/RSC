@@ -5,7 +5,7 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey("buyers.id"), nullable=False)
     total_amount = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(50), default="pending")  # pending, completed, cancelled, shipped
+    status = db.Column(db.String(50), default="pending")  # pending, shipped, delivered
     reference = db.Column(db.String(100), unique=True, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -19,4 +19,4 @@ class OrderItem(db.Model):
     product_name = db.Column(db.String(200), nullable=False)  # snapshot of product name
     quantity = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Float, nullable=False)  # price per unit
-    status = db.Column(db.String(50), default="pending")  # pending, shipped, delivered, cancelled
+    status = db.Column(db.String(50), default="pending")  # pending, shipped, delivered,
