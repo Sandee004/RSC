@@ -864,6 +864,8 @@ def profile():
             "email": user.email,
             "phone": user.phone,
             "role": user.role,
+            "state": user.state,
+            "country": user.country,
             "referral_code": user.referral_code,
             "referred_by": user.referred_by,
         }
@@ -881,6 +883,8 @@ def profile():
             "business_type": user.business_type,
             "email": user.email,
             "phone": user.phone,
+            "state": user.state,
+            "country": user.country,
             "role": "vendor",
             "kyc_status": user.kyc_status,
             "referral_code": user.referral_code,
