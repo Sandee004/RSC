@@ -10,9 +10,10 @@ class Config:
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
 
-    MAIL_SERVER = 'smtp.gmail.com'
-    MAIL_PORT = 587
-    MAIL_USE_TLS = True
+    MAIL_SERVER = 'mail.bizengo.com'
+    MAIL_PORT = 465
+    MAIL_USE_SSL = True
+    MAIL_USE_TLS = False
     MAIL_USERNAME = os.getenv("USERNAME_FOR_EMAIL")
     MAIL_PASSWORD = os.getenv("PASSWORD_FOR_EMAIL")
     MAIL_DEFAULT_SENDER = os.getenv("USERNAME_FOR_EMAIL")

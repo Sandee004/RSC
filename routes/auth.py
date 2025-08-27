@@ -394,6 +394,68 @@ def signup_vendor():
 
 @auth_bp.route('/api/auth/verify-email', methods=['POST'])
 def verify_email():
+    """
+    Verify Email with OTP
+    ---
+    tags:
+      - Authentication
+    summary: Verify a pending user account using OTP
+    description: >
+      This endpoint verifies a buyer or vendor account that has registered but not yet confirmed.  
+      The user must provide the email used during signup and the OTP code sent to that email.  
+      On successful verification, the account is activated and an access token is returned.
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        description: Email and OTP for verification
+        schema:
+          type: object
+          required:
+            - email
+            - otp
+          properties:
+            email:
+              type: string
+              example: vendor@example.com
+            otp:
+              type: string
+              example: "123456"
+    responses:
+      200:
+        description: Email verified successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Email verified successfully
+            access_token:
+              type: string
+              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+            role:
+              type: string
+              example: vendor
+              description: The role of the verified user (buyer or vendor)
+      400:
+        description: Invalid or expired OTP
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Invalid OTP
+      404:
+        description: No pending registration found for this account
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: No pending registration found for this account
+    """
     data = request.get_json()
     email = data.get("email")
     otp_code = data.get("otp")
@@ -427,7 +489,8 @@ def verify_email():
             country=pending.country,
             password=pending.password,
             referral_code=generate_referral_code(),
-            referred_by=pending.referral_code
+            referred_by=pending.referral_code,
+            role="buyer"
         )
         db.session.add(new_user)
 
