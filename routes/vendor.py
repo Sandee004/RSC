@@ -1,4 +1,4 @@
-from core.imports import Blueprint, request, jsonify, jwt_required, get_jwt_identity
+from core.imports import Blueprint, request, jsonify, jwt_required, get_jwt_identity, requests, base64, BytesIO, re
 from models.vendorModels import Category, Products, Storefront
 from models.userModel import Vendors
 from models.orderModels import Order
@@ -79,7 +79,35 @@ def seed_products():
             print(f"ℹ️ Product already exists: {prod['product_name']}")
     db.session.commit()
 
+def upload_base64_image(img_b64, vendor_id, idx):
+    # Detect prefix (optional, if sent with data:image/...;base64)
+    match = re.match(r"data:image/(png|jpeg|jpg);base64,(.*)", img_b64, re.DOTALL)
+    if match:
+        img_format = match.group(1).lower()   # png / jpeg / jpg
+        img_data = match.group(2)
+    else:
+        # fallback: assume jpeg if no prefix
+        img_format = "jpeg"
+        img_data = img_b64
 
+    # Decode base64
+    img_bytes = base64.b64decode(img_data)
+
+    # Pick correct mimetype
+    mime_type = f"image/{img_format if img_format != 'jpg' else 'jpeg'}"
+
+    files = {
+        "file": (f"product_{vendor_id}_{idx}.{img_format}", BytesIO(img_bytes), mime_type)
+    }
+
+    # Upload to external API (adjust headers/auth if needed)
+    response = requests.post("https://api.bizengo.com/images", files=files)
+
+    if response.status_code == 200:
+        return response.json().get("url")
+    else:
+        raise Exception(f"Image upload failed: {response.text}")
+    
 @vendor_bp.route('/api/vendor/my-products', methods=['GET'])
 @jwt_required()
 def get_my_products():
@@ -330,12 +358,20 @@ def add_product():
         db.session.add(category)
         db.session.commit()
 
+    uploaded_image_urls = []
+    for idx, img_b64 in enumerate(product_images):
+        try:
+            url = upload_base64_image(img_b64, current_vendor_id, idx)
+            uploaded_image_urls.append(url)
+        except Exception as e:
+            return jsonify({"error": "Image upload failed", "details": str(e)}), 500
+
     # Create product
     new_product = Products(
         product_name=product_name,
         product_price=float(product_price),
         description=description,
-        product_images=product_images,   # SQLAlchemy JSON will handle list
+        product_images=uploaded_image_urls,
         category_id=category.id,
         condition=condition,
         vendor_id=current_vendor_id,     # ✅ just the int ID
