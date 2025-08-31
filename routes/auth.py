@@ -2,7 +2,7 @@
 from core.imports import Blueprint, jsonify, request, render_template, create_access_token, jwt_required, secrets, uuid, get_jwt_identity, get_jwt, requests, random, string, cloudinary, os, load_dotenv, datetime, Message, timedelta, IntegrityError
 from core.config import Config
 from core.extensions import db, bcrypt, mail
-from models.userModel import Buyers, Vendors, PendingBuyer, PendingVendor
+from models.userModel import Buyers, Vendors, PendingBuyer, PendingVendor, Admins
 from models.vendorModels import Storefront
 load_dotenv() 
 
@@ -550,19 +550,18 @@ def verify_email():
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
     """
-    User Login
+    User/Admin Login
     ---
     tags:
       - Authentication
-    summary: Authenticate user and get JWT
-    description: Logs in a user (Buyer or Vendor) using their email and password, returning a JWT access token if successful.
+    summary: Authenticate user/admin and get JWT
+    description: Logs in a user (Buyer, Vendor, or Admin) using their email and password, returning a JWT access token if successful.
     consumes:
       - application/json
     parameters:
       - in: body
         name: body
         required: true
-        description: User login credentials
         schema:
           type: object
           required:
@@ -571,31 +570,11 @@ def login():
           properties:
             email:
               type: string
-              example: example@example.com
             password:
               type: string
-              example: pass123
     responses:
       200:
         description: Login successful
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Login successful
-            access_token:
-              type: string
-              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-            user:
-              type: object
-              properties:
-                email:
-                  type: string
-                  example: johndoe@example.com
-                role:
-                  type: string
-                  example: buyer
       400:
         description: Missing email or password
       401:
@@ -608,19 +587,30 @@ def login():
     if not email or not password:
         return jsonify({"message": "Email and password are required"}), 400
 
-    # Try to find it in either buyers or vendors table
-    user = Buyers.query.filter_by(email=email).first()
-    role = "buyer"
+    user = None
+    role = None
 
-    if not user:
-        user = Vendors.query.filter_by(email=email).first()
-        role = "vendor"
+    # Check Admins first
+    user = Admins.query.filter_by(email=email).first()
+    if user:
+        role = "admin"
+    else:
+        # Check Buyers
+        user = Buyers.query.filter_by(email=email).first()
+        if user:
+            role = "buyer"
+        else:
+            # Check Vendors
+            user = Vendors.query.filter_by(email=email).first()
+            if user:
+                role = "vendor"
 
+    # If no user found or password mismatch
     if not user or not bcrypt.check_password_hash(user.password, password):
         return jsonify({"message": "Invalid credentials"}), 401
 
     access_token = create_access_token(
-        identity=str(user.id), 
+        identity=str(user.id),
         additional_claims={"role": role}
     )
 

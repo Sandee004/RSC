@@ -3,6 +3,14 @@ from sqlalchemy.dialects.sqlite import JSON
 from core.imports import datetime
 
 
+class Admins(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    password = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(50), default="admin")  # Always 'admin'
+
+
 class Buyers(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False, index=True)
