@@ -1,4 +1,4 @@
-from core.imports import Blueprint, current_app, jsonify, get_jwt_identity, jwt_required, request, hashlib, hmac
+from core.imports import Blueprint, current_app, jsonify, get_jwt_identity, jwt_required, get_jwt, request, hashlib, hmac
 from core.extensions import db
 from models.orderModels import OrderItem, Order
 from models.vendorModels import Products
@@ -141,12 +141,12 @@ def get_vendor_orders():
               type: string
               example: "Unauthorized"
     """
-    identity = get_jwt_identity()
-    vendor_id = identity.get("id")
-    role = identity.get("role")
+    vendor_id = get_jwt_identity()
+    claims = get_jwt()
+    role = claims.get("role")
 
     if role != "vendor":
-        return jsonify({"message": "Unauthorized"}), 403
+        return jsonify({"message": "Unauthorized. Must be a vendor"}), 403
 
     order_items = (
         OrderItem.query
@@ -256,12 +256,12 @@ def get_vendor_order(order_id):
               type: string
               example: "Order not found or no products for this vendor"
     """
-    identity = get_jwt_identity()
-    vendor_id = identity.get("id")
-    role = identity.get("role")
+    vendor_id = get_jwt_identity()
+    claims = get_jwt()
+    role = claims.get("role")
 
     if role != "vendor":
-        return jsonify({"message": "Unauthorized"}), 403
+        return jsonify({"message": "Unauthorized. Must be a vendor"}), 403
 
     order_items = (
         OrderItem.query
@@ -361,9 +361,9 @@ def update_vendor_order_item_status(order_id):
               type: string
               example: "No order items found for this vendor"
     """
-    identity = get_jwt_identity()
-    vendor_id = identity.get("id")
-    role = identity.get("role")
+    vendor_id = get_jwt_identity()
+    claims = get_jwt()
+    role = claims.get("role")
 
     if role != "vendor":
         return jsonify({"message": "Unauthorized"}), 403

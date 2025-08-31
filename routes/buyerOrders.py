@@ -100,8 +100,7 @@ def create_order():
               type: string
               example: "Error creating order"
     """
-    identity = get_jwt_identity()
-    user_id = identity.get("id")
+    user_id = get_jwt_identity()
   
     user = Buyers.query.get(user_id)
     if not user:
@@ -246,8 +245,7 @@ def get_user_orders():
               type: string
               example: "User not found"
     """
-    identity = get_jwt_identity()
-    user_id = identity.get("id")
+    user_id = get_jwt_identity()
     user = Buyers.query.get(user_id)
     
     if not user:

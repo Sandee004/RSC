@@ -1,4 +1,4 @@
-from core.imports import Blueprint, jsonify, get_jwt_identity, jwt_required, request
+from core.imports import Blueprint, jsonify, get_jwt_identity, jwt_required, request, get_jwt
 from core.extensions import db
 from models.userModel import Buyers
 from flask import current_app
@@ -82,9 +82,10 @@ def get_cart():
               type: string
               example: "Buyer not found"
     """
-    identity = get_jwt_identity()
-    buyer_id = identity.get("id")
-    role = identity.get("role")
+    buyer_id = get_jwt_identity()
+
+    claims = get_jwt()
+    role = claims.get("role")
 
     if role != "buyer":
         return jsonify({"message": "Unauthorized"}), 403
@@ -176,16 +177,15 @@ def add_to_cart():
               type: string
               example: "Invalid product ID"
     """
-    data = request.get_json()
-    product_id = data.get("product_id")
-    quantity = data.get("quantity", 1)
-
-    identity = get_jwt_identity()
-    buyer_id = identity.get("id")
+    buyer_id = get_jwt_identity()
 
     buyer = Buyers.query.get(buyer_id)
     if not buyer:
         return jsonify({"message": "Buyer not found"}), 404
+    
+    data = request.get_json()
+    product_id = data.get("product_id")
+    quantity = data.get("quantity", 1)
 
     product = Products.query.get(product_id)
     if not product:
@@ -263,8 +263,7 @@ def update_cart_item(item_id):
               type: string
               example: "Cart item not found"
     """
-    identity = get_jwt_identity()
-    buyer_id = identity.get("id")
+    buyer_id = get_jwt_identity()
 
     cart_item = CartItem.query.join(Cart).filter(
         CartItem.id == item_id,
@@ -324,8 +323,7 @@ def delete_cart_item(item_id):
               type: string
               example: "Cart item not found"
     """
-    identity = get_jwt_identity()
-    buyer_id = identity.get("id")
+    buyer_id = get_jwt_identity()
 
     cart_item = CartItem.query.join(Cart).filter(
         CartItem.id == item_id,
@@ -375,8 +373,7 @@ def clear_cart():
               type: string
               example: "Cart not found"
     """
-    identity = get_jwt_identity()
-    buyer_id = identity.get("id")
+    buyer_id = get_jwt_identity()
 
     cart = Cart.query.filter_by(buyer_id=buyer_id).first()
     if not cart:

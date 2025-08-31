@@ -1,4 +1,5 @@
-from core.imports import Blueprint, jsonify, request, render_template, create_access_token, jwt_required, get_jwt_identity, requests, random, string, cloudinary, os, load_dotenv, datetime, Message, timedelta
+#text/x-generic auth.py ( Python script, UTF-8 Unicode text executable, with CRLF line terminators )
+from core.imports import Blueprint, jsonify, request, render_template, create_access_token, jwt_required, secrets, uuid, get_jwt_identity, get_jwt, requests, random, string, cloudinary, os, load_dotenv, datetime, Message, timedelta, IntegrityError
 from core.config import Config
 from core.extensions import db, bcrypt, mail
 from models.userModel import Buyers, Vendors, PendingBuyer, PendingVendor
@@ -17,9 +18,12 @@ def cleanup_expired_pending():
         db.session.delete(record)
     db.session.commit()
 
-def generate_referral_code(length=8):
-    """Generate a random alphanumeric referral code."""
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+def generate_referral_code(length=8, prefix=""):
+    """Generate a secure random alphanumeric referral code with optional prefix."""
+    alphabet = string.ascii_uppercase + string.digits
+    code = ''.join(secrets.choice(alphabet) for _ in range(length))
+    unique_suffix = uuid.uuid4().hex[:6].upper()  # short unique part
+    return f"{prefix}{code}{unique_suffix}"
 
 def send_email(to, subject, body):
     msg = Message(subject=subject, recipients=[to])
@@ -480,6 +484,7 @@ def verify_email():
     if pending.otp_code != otp_code:
         return jsonify({"message": "Invalid OTP"}), 400
 
+    new_user = None
     if role == "buyer":
         new_user = Buyers(
             name=pending.name,
@@ -493,7 +498,6 @@ def verify_email():
             role="buyer"
         )
         db.session.add(new_user)
-
     else:  # vendor
         new_user = Vendors(
             firstname=pending.firstname,
@@ -520,10 +524,22 @@ def verify_email():
         db.session.add(new_storefront)
 
     db.session.delete(pending)
-    db.session.commit()
 
-    token = create_access_token(identity={"id": new_user.id, "role": role})
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"message": "This email address is already in use by another account."}), 409
+    except Exception as e:
+        db.session.rollback()
+        print(f"An unexpected error occurred during email verification: {e}")
+        return jsonify({"message": "An internal error occurred."}), 500
 
+    token = create_access_token(
+        identity=str(new_user.id), 
+        additional_claims={"role": role}
+    )
+    
     return jsonify({
         "message": "Email verified successfully",
         "access_token": token,
@@ -592,7 +608,7 @@ def login():
     if not email or not password:
         return jsonify({"message": "Email and password are required"}), 400
 
-    # Try to fnd it in eiter buyers or vendors table
+    # Try to find it in either buyers or vendors table
     user = Buyers.query.filter_by(email=email).first()
     role = "buyer"
 
@@ -603,8 +619,10 @@ def login():
     if not user or not bcrypt.check_password_hash(user.password, password):
         return jsonify({"message": "Invalid credentials"}), 401
 
-    # Generate JWT
-    access_token = create_access_token(identity={"id": user.id, "role": role})
+    access_token = create_access_token(
+        identity=str(user.id), 
+        additional_claims={"role": role}
+    )
 
     return jsonify({
         "message": "Login successful",
@@ -909,10 +927,10 @@ def profile():
       404:
         description: User not found
     """
-    identity = get_jwt_identity()   # {"id": user.id, "type": "buyer" or "vendor"}
-    print(identity)
-    user_id = identity.get("id")
-    user_type = identity.get("role")
+    user_id = get_jwt_identity()
+
+    claims = get_jwt()
+    user_type = claims.get("role")
 
     user_data = {}
 
@@ -960,7 +978,7 @@ def profile():
     return jsonify(user_data), 200
 
 
-@auth_bp.route('/api/user/profile', methods=['PATCH'])
+@auth_bp.route('/api/user/update-profile', methods=['PATCH'])
 @jwt_required()
 def update_profile_details():
     """
@@ -1008,9 +1026,9 @@ def update_profile_details():
       409:
         description: Email already in use
     """
-    identity = get_jwt_identity()  # {"id": ..., "type": ...}
-    user_id = identity.get("id")
-    user_type = identity.get("type")
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    user_type = claims.get("role")
 
     data = request.get_json()
     if not data:
@@ -1028,7 +1046,6 @@ def update_profile_details():
             updated = True
 
         if 'email' in data and data['email']:
-            # check conflict across BOTH Buyers and Vendors
             email_conflict = (Buyers.query.filter(Buyers.email == data['email'], Buyers.id != user.id).first() or
                               Vendors.query.filter_by(email=data['email']).first())
             if email_conflict:
@@ -1062,7 +1079,6 @@ def update_profile_details():
             updated = True
 
         if 'email' in data and data['email']:
-            # check conflict across BOTH Vendors and Buyers
             email_conflict = (Vendors.query.filter(Vendors.email == data['email'], Vendors.id != user.id).first() or
                               Buyers.query.filter_by(email=data['email']).first())
             if email_conflict:
@@ -1078,29 +1094,12 @@ def update_profile_details():
         return jsonify({"message": "Invalid user type"}), 400
 
     if not updated:
-        return jsonify({"message": "No fields were updated"}), 204
+        # Status 204 means success but no content, which fits here.
+        return jsonify({"message": "No fields were updated"}), 200 
 
     db.session.commit()
 
-    return jsonify({
-        "message": "User details updated successfully",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "phone": user.phone,
-            **(
-                {"name": user.name, "role": user.role, "referral_code": user.referral_code}
-                if user_type == "buyer"
-                else {
-                    "firstname": user.firstname,
-                    "lastname": user.lastname,
-                    "business_name": user.business_name,
-                    "business_type": user.business_type,
-                    "referral_code": user.referral_code,
-                }
-            )
-        }
-    }), 200
+    return jsonify({"message": "User details updated successfully"}), 200
 
 
 @auth_bp.route("/api/upload-profile-pic", methods=["POST"])
@@ -1162,9 +1161,10 @@ def upload_profile_pic():
               type: string
               example: "Failed to upload image"
     """
-    identity = get_jwt_identity()
-    user_id = identity.get("id")
-    role = identity.get("role")
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    role = claims.get("role")
+
 
     # Check in the correct model
     if role == "buyer":

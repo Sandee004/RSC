@@ -185,9 +185,7 @@ def get_my_products():
               type: string
               example: "Unauthorized"
     """
-    current_vendor = get_jwt_identity()   # dict -> {"id": 1, "role": "vendor"}
-    current_vendor_id = current_vendor.get("id")
-
+    current_vendor_id = get_jwt_identity()
 
     products = Products.query.filter_by(vendor_id=current_vendor_id).order_by(Products.id.desc()).all()
 
@@ -333,8 +331,7 @@ def add_product():
               type: string
               example: "Image upload failed"
     """
-    current_vendor = get_jwt_identity()   # dict -> {"id": 1, "role": "vendor"}
-    current_vendor_id = current_vendor.get("id")
+    current_vendor_id = get_jwt_identity()
 
     data = request.get_json()
 
@@ -521,8 +518,8 @@ def edit_product(product_id):
               type: string
               example: "Product not found or not authorized"
     """
-    current_vendor = get_jwt_identity()   # dict -> {"id": 1, "role": "vendor"}
-    current_vendor_id = current_vendor.get("id")
+    current_vendor_id = get_jwt_identity()
+
     data = request.get_json()
 
     # Fetch product and ensure vendor owns it
@@ -594,9 +591,8 @@ def delete_product(product_id):
     - Hard delete if no orders exist.
     - Soft delete if orders are linked.
     """
-    current_vendor = get_jwt_identity()
-    current_vendor_id = current_vendor.get("id")
-
+    current_vendor_id = get_jwt_identity()
+    
     product = Products.query.get(product_id)
 
     if not product:
@@ -707,8 +703,7 @@ def get_storefront_details():
               type: string
               example: "Storefront not found"
     """
-    current_vendor = get_jwt_identity()
-    current_vendor_id = current_vendor.get("id")
+    current_vendor_id = get_jwt_identity()
 
     storefront = Storefront.query.filter_by(vendor_id=current_vendor_id).first()
 
@@ -829,9 +824,8 @@ def update_storefront():
               type: string
               example: "Storefront not found"
     """
-    current_vendor = get_jwt_identity()
-    current_vendor_id = current_vendor.get("id")
-
+    current_vendor_id = get_jwt_identity()
+  
     storefront = Storefront.query.filter_by(vendor_id=current_vendor_id).first()
     if not storefront:
         return jsonify({"error": "Storefront not found"}), 404
