@@ -387,7 +387,7 @@ def add_product():
             "product_price": new_product.product_price,
             "description": new_product.description,
             "category": category.name,
-            "condition": condition.name,
+            "condition": condition,
             "images": new_product.product_images,
             "status": new_product.status,
             "visibility": new_product.visibility,

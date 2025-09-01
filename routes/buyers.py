@@ -1,6 +1,6 @@
 from core.imports import Blueprint, jsonify, get_jwt_identity, jwt_required, request, get_jwt
 from core.extensions import db
-from models.vendorModels import Products
+from models.vendorModels import Products, Storefront
 from models.favouriteModels import Favourites
 
 
@@ -102,4 +102,49 @@ def get_favourites():
     return jsonify({
         "favourites": product_list,
         "count": len(product_list)
+    }), 200
+
+
+@buyers_bp.route('/api/admin/storefronts', methods=['GET'])
+@jwt_required()
+def get_storefronts():
+    """
+    Get all storefronts
+    ---
+    tags:
+      - Buyers
+    responses:
+      200:
+        description: List of storefronts with vendor info
+      403:
+        description: Forbidden (not admin)
+    """
+    claims = get_jwt_identity()
+    if claims.get("role") != "admin" or claims.get("role") != "buyer":
+        return jsonify({"error": "Forbidden"}), 403
+
+    storefronts = Storefront.query.all()
+
+    data = []
+    for sf in storefronts:
+        data.append({
+            "id": sf.id,
+            "business_name": sf.business_name,
+            "business_banner": sf.business_banner,
+            "description": sf.description,
+            "established_at": sf.established_at,
+            "ratings": sf.ratings,
+            "vendor": {
+                "id": sf.vendor.id,
+                "firstname": sf.vendor.firstname,
+                "lastname": sf.vendor.lastname,
+                "business_name": sf.vendor.business_name,
+                "email": sf.vendor.email,
+                "phone": sf.vendor.phone
+            }
+        })
+
+    return jsonify({
+        "count": len(data),
+        "storefronts": data
     }), 200

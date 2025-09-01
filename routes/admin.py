@@ -1,4 +1,4 @@
-from core.imports import Blueprint, get_jwt_identity, jsonify, jwt_required, request
+from core.imports import Blueprint, get_jwt_identity, jsonify, jwt_required, request, get_jwt
 from models.userModel import Buyers, Vendors, Admins
 from models.vendorModels import Products, Storefront
 from core.extensions import db, bcrypt
@@ -38,6 +38,9 @@ def seed_admin_accounts():
     db.session.commit()
     print("✅ Admin accounts seeded successfully")
 
+# =========================
+# /api/admin/stats (GET)
+# =========================
 @admin_bp.route('/api/admin/stats', methods=['GET'])
 @jwt_required()
 def get_admin_stats():
@@ -46,13 +49,44 @@ def get_admin_stats():
     ---
     tags:
       - Admin
+    summary: Get platform statistics (Admin only)
+    description: Returns counts of users, storefronts, and products.
+    security:
+      - Bearer: []
+    parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token in format: Bearer <your_token>'
+        required: true
+        type: string
+        default: "Bearer "
     responses:
       200:
         description: Platform stats
+        schema:
+          type: object
+          properties:
+            users:
+              type: object
+              properties:
+                buyers: { type: integer, example: 120 }
+                vendors: { type: integer, example: 45 }
+                total_accounts: { type: integer, example: 165 }
+            storefronts: { type: integer, example: 30 }
+            products:
+              type: object
+              properties:
+                total: { type: integer, example: 500 }
+                active: { type: integer, example: 420 }
+                inactive_or_hidden: { type: integer, example: 80 }
       403:
         description: Forbidden (not admin)
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Forbidden }
     """
-    claims = get_jwt_identity()
+    claims = get_jwt()
     if claims.get("role") != "admin":
         return jsonify({"error": "Forbidden"}), 403
 
@@ -61,7 +95,9 @@ def get_admin_stats():
     total_storefronts = Storefront.query.count()
     total_products = Products.query.count()
     active_products = Products.query.filter_by(status="active", visibility=True).count()
-    inactive_products = Products.query.filter((Products.status != "active") | (Products.visibility == False)).count()
+    inactive_products = Products.query.filter(
+        (Products.status != "active") | (Products.visibility == False)
+    ).count()
 
     return jsonify({
         "users": {
@@ -78,6 +114,9 @@ def get_admin_stats():
     }), 200
 
 
+# =========================
+# /api/admin/users (GET)
+# =========================
 @admin_bp.route('/api/admin/users', methods=['GET'])
 @jwt_required()
 def get_users():
@@ -86,20 +125,30 @@ def get_users():
     ---
     tags:
       - Admin
+    summary: List all users (Admin only)
     security:
       - Bearer: []
+    parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token in format: Bearer <your_token>'
+        required: true
+        type: string
+        default: "Bearer "
     responses:
       200:
         description: List of all users (buyers and vendors)
       403:
         description: Forbidden (not an admin)
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Forbidden }
     """
-    claims = get_jwt_identity()
-    # Ensure only admins can view
+    claims = get_jwt()
     if claims.get("role") != "admin":
         return jsonify({"error": "Forbidden"}), 403
 
-    # Fetch buyers
     buyers = Buyers.query.all()
     buyers_list = [
         {
@@ -111,16 +160,14 @@ def get_users():
             "referral_code": b.referral_code,
             "referred_by": b.referred_by,
             "account_type": "buyer"
-        }
-        for b in buyers
+        } for b in buyers
     ]
 
-    # Fetch vendors
     vendors = Vendors.query.all()
     vendors_list = [
         {
             "id": v.id,
-            "name": f"{v.firstname} {v.lastname}".strip(),  # unified field
+            "name": f"{v.firstname} {v.lastname}".strip(),
             "business_name": v.business_name,
             "kyc_status": v.kyc_status,
             "business_type": v.business_type,
@@ -130,20 +177,16 @@ def get_users():
             "referral_code": v.referral_code,
             "referred_by": v.referred_by,
             "account_type": "vendor"
-        }
-        for v in vendors
+        } for v in vendors
     ]
 
-    # Merge and sort by ID (optional: you could sort by created_at if you add that field later)
-    all_users = buyers_list + vendors_list
-    all_users = sorted(all_users, key=lambda x: x["id"])
-
-    return jsonify({
-        "count": len(all_users),
-        "users": all_users
-    }), 200
+    all_users = sorted(buyers_list + vendors_list, key=lambda x: x["id"])
+    return jsonify({"count": len(all_users), "users": all_users}), 200
 
 
+# =========================
+# DELETE /api/admin/users/<account_type>/<user_id>
+# =========================
 @admin_bp.route('/api/admin/users/<string:account_type>/<int:user_id>', methods=['DELETE'])
 @jwt_required()
 def delete_user(account_type, user_id):
@@ -152,7 +195,15 @@ def delete_user(account_type, user_id):
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
     parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token in format: Bearer <your_token>'
+        required: true
+        type: string
+        default: "Bearer "
       - name: account_type
         in: path
         type: string
@@ -167,12 +218,30 @@ def delete_user(account_type, user_id):
     responses:
       200:
         description: User deleted
+        schema:
+          type: object
+          properties:
+            message: { type: string, example: Buyer 5 deleted successfully }
+      400:
+        description: Invalid account type
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Invalid account type }
       403:
         description: Forbidden (not admin)
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Forbidden }
       404:
         description: User not found
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: User not found }
     """
-    claims = get_jwt_identity()
+    claims = get_jwt()
     if claims.get("role") != "admin":
         return jsonify({"error": "Forbidden"}), 403
 
@@ -186,10 +255,12 @@ def delete_user(account_type, user_id):
 
     db.session.delete(user)
     db.session.commit()
-
     return jsonify({"message": f"{account_type.capitalize()} {user_id} deleted successfully"}), 200
 
 
+# =========================
+# GET /api/admin/users/<account_type>/<user_id>
+# =========================
 @admin_bp.route('/api/admin/users/<string:account_type>/<int:user_id>', methods=['GET'])
 @jwt_required()
 def get_user_details(account_type, user_id):
@@ -199,7 +270,15 @@ def get_user_details(account_type, user_id):
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
     parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token in format: Bearer <your_token>'
+        required: true
+        type: string
+        default: "Bearer "
       - name: account_type
         in: path
         type: string
@@ -216,10 +295,18 @@ def get_user_details(account_type, user_id):
         description: User details with related info
       403:
         description: Forbidden (not admin)
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Forbidden }
       404:
         description: User not found
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Buyer not found }
     """
-    claims = get_jwt_identity()
+    claims = get_jwt()
     if claims.get("role") != "admin":
         return jsonify({"error": "Forbidden"}), 403
 
@@ -228,7 +315,6 @@ def get_user_details(account_type, user_id):
         if not buyer:
             return jsonify({"error": "Buyer not found"}), 404
 
-        # Collect buyer's favourites
         favourites = [
             {
                 "id": fav.product.id,
@@ -242,8 +328,7 @@ def get_user_details(account_type, user_id):
                     "business_name": fav.product.vendor.business_name,
                     "email": fav.product.vendor.email
                 }
-            }
-            for fav in buyer.favourites
+            } for fav in buyer.favourites
         ]
 
         return jsonify({
@@ -264,7 +349,6 @@ def get_user_details(account_type, user_id):
         if not vendor:
             return jsonify({"error": "Vendor not found"}), 404
 
-        # Collect vendor's products
         products = [
             {
                 "id": p.id,
@@ -275,8 +359,7 @@ def get_user_details(account_type, user_id):
                 "category": p.category.name if p.category else None,
                 "status": p.status,
                 "visibility": p.visibility
-            }
-            for p in vendor.products
+            } for p in vendor.products
         ]
 
         return jsonify({
@@ -299,6 +382,9 @@ def get_user_details(account_type, user_id):
         return jsonify({"error": "Invalid account type"}), 400
 
 
+# =========================
+# DELETE /api/admin/storefronts/<storefront_id>
+# =========================
 @admin_bp.route('/api/admin/storefronts/<int:storefront_id>', methods=['DELETE'])
 @jwt_required()
 def delete_storefront(storefront_id):
@@ -307,7 +393,15 @@ def delete_storefront(storefront_id):
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
     parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token in format: Bearer <your_token>'
+        required: true
+        type: string
+        default: "Bearer "
       - name: storefront_id
         in: path
         type: integer
@@ -316,12 +410,24 @@ def delete_storefront(storefront_id):
     responses:
       200:
         description: Storefront deleted
+        schema:
+          type: object
+          properties:
+            message: { type: string, example: Storefront 3 deleted successfully }
       403:
         description: Forbidden (not admin)
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Forbidden }
       404:
         description: Storefront not found
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Storefront not found }
     """
-    claims = get_jwt_identity()
+    claims = get_jwt()
     if claims.get("role") != "admin":
         return jsonify({"error": "Forbidden"}), 403
 
@@ -331,10 +437,12 @@ def delete_storefront(storefront_id):
 
     db.session.delete(storefront)
     db.session.commit()
-
     return jsonify({"message": f"Storefront {storefront_id} deleted successfully"}), 200
 
 
+# =========================
+# PATCH /api/admin/products/<product_id>/status
+# =========================
 @admin_bp.route('/api/admin/products/<int:product_id>/status', methods=['PATCH'])
 @jwt_required()
 def update_product_status(product_id):
@@ -343,7 +451,17 @@ def update_product_status(product_id):
     ---
     tags:
       - Admin
+    consumes:
+      - application/json
+    security:
+      - Bearer: []
     parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token in format: Bearer <your_token>'
+        required: true
+        type: string
+        default: "Bearer "
       - name: product_id
         in: path
         type: integer
@@ -365,12 +483,32 @@ def update_product_status(product_id):
     responses:
       200:
         description: Product status updated
+        schema:
+          type: object
+          properties:
+            message: { type: string, example: Product 12 updated successfully }
+            status: { type: string, example: inactive }
+            visibility: { type: boolean, example: false }
+      400:
+        description: Invalid status
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Invalid status }
       403:
         description: Forbidden (not admin)
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Forbidden }
       404:
         description: Product not found
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Product not found }
     """
-    claims = get_jwt_identity()
+    claims = get_jwt()
     if claims.get("role") != "admin":
         return jsonify({"error": "Forbidden"}), 403
 
@@ -389,7 +527,6 @@ def update_product_status(product_id):
         product.visibility = bool(data["visibility"])
 
     db.session.commit()
-
     return jsonify({
         "message": f"Product {product_id} updated successfully",
         "status": product.status,
@@ -397,51 +534,9 @@ def update_product_status(product_id):
     }), 200
 
 
-@admin_bp.route('/api/admin/storefronts', methods=['GET'])
-@jwt_required()
-def get_storefronts():
-    """
-    Admin: Get all storefronts
-    ---
-    tags:
-      - Admin
-    responses:
-      200:
-        description: List of storefronts with vendor info
-      403:
-        description: Forbidden (not admin)
-    """
-    claims = get_jwt_identity()
-    if claims.get("role") != "admin":
-        return jsonify({"error": "Forbidden"}), 403
-
-    storefronts = Storefront.query.all()
-
-    data = []
-    for sf in storefronts:
-        data.append({
-            "id": sf.id,
-            "business_name": sf.business_name,
-            "business_banner": sf.business_banner,
-            "description": sf.description,
-            "established_at": sf.established_at,
-            "ratings": sf.ratings,
-            "vendor": {
-                "id": sf.vendor.id,
-                "firstname": sf.vendor.firstname,
-                "lastname": sf.vendor.lastname,
-                "business_name": sf.vendor.business_name,
-                "email": sf.vendor.email,
-                "phone": sf.vendor.phone
-            }
-        })
-
-    return jsonify({
-        "count": len(data),
-        "storefronts": data
-    }), 200
-
-
+# =========================
+# GET /api/admin/storefronts/<storefront_id>
+# =========================
 @admin_bp.route('/api/admin/storefronts/<int:storefront_id>', methods=['GET'])
 @jwt_required()
 def get_storefront_details(storefront_id):
@@ -450,7 +545,15 @@ def get_storefront_details(storefront_id):
     ---
     tags:
       - Admin
+    security:
+      - Bearer: []
     parameters:
+      - name: Authorization
+        in: header
+        description: 'JWT token in format: Bearer <your_token>'
+        required: true
+        type: string
+        default: "Bearer "
       - name: storefront_id
         in: path
         type: integer
@@ -461,10 +564,18 @@ def get_storefront_details(storefront_id):
         description: Storefront details with vendor and products
       403:
         description: Forbidden (not admin)
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Forbidden }
       404:
         description: Storefront not found
+        schema:
+          type: object
+          properties:
+            error: { type: string, example: Storefront not found }
     """
-    claims = get_jwt_identity()
+    claims = get_jwt()
     if claims.get("role") != "admin":
         return jsonify({"error": "Forbidden"}), 403
 
@@ -482,8 +593,7 @@ def get_storefront_details(storefront_id):
             "status": p.status,
             "visibility": p.visibility,
             "category": p.category.name if p.category else None
-        }
-        for p in sf.vendor.products
+        } for p in sf.vendor.products
     ]
 
     return jsonify({

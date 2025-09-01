@@ -4,10 +4,16 @@ from core.config import Config
 from core.extensions import db, bcrypt, mail
 from models.userModel import Buyers, Vendors, PendingBuyer, PendingVendor, Admins
 from models.vendorModels import Storefront
+from werkzeug.utils import secure_filename
 load_dotenv() 
 
 auth_bp = Blueprint('auth', __name__)
 
+UPLOAD_FOLDER = "/var/www/api.bizengo.com/images"
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def cleanup_expired_pending():
     now = datetime.utcnow()
@@ -636,50 +642,44 @@ def request_password_reset():
         Allows a registered user (buyer or vendor) to request a password reset.
         An OTP will be sent to the provided email if the account exists.
         The OTP will expire in 10 minutes.
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - email
-            properties:
-              email:
-                type: string
-                format: email
-                example: user@example.com
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - email
+          properties:
+            email:
+              type: string
+              format: email
+              example: user@example.com
     responses:
       200:
         description: OTP sent successfully
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: Password reset OTP sent to your email
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Password reset OTP sent to your email
       400:
         description: Missing required field (email)
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: Email is required
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Email is required
       404:
         description: No account found for the provided email
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: No account found with this email
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: No account found with this email
     """
     data = request.get_json()
     email = data.get("email")
@@ -709,90 +709,6 @@ def request_password_reset():
     return jsonify({"message": "Password reset OTP sent to your email"}), 200
 
 
-@auth_bp.route('/api/auth/verify-password-reset', methods=['POST'])
-def verify_password_reset():
-    """
-    Verify password reset OTP
-    ---
-    tags:
-      - Authentication
-    summary: Verify password reset OTP
-    description: >
-        Verifies the OTP sent to the user's email during the password reset process.
-        This step ensures the OTP is valid and not expired before allowing the user
-        to set a new password.
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - email
-              - otp
-            properties:
-              email:
-                type: string
-                format: email
-                example: user@example.com
-              otp:
-                type: string
-                example: "123456"
-    responses:
-      200:
-        description: OTP verified successfully
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: OTP verified. You can now reset your password
-      400:
-        description: Invalid request, expired, or incorrect OTP
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: OTP expired
-      404:
-        description: No reset request found for this email
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: No reset request found
-    """
-    data = request.get_json()
-    email = data.get("email")
-    otp_code = data.get("otp")
-
-    if not email or not otp_code:
-        return jsonify({"message": "Email and OTP are required"}), 400
-
-    reset_request = PendingBuyer.query.filter_by(email=email).first()
-
-    if not reset_request:
-        return jsonify({"message": "No reset request found"}), 404
-
-    if datetime.utcnow() > reset_request.otp_expires_at:
-        db.session.delete(reset_request)
-        db.session.commit()
-        return jsonify({"message": "OTP expired"}), 400
-
-    if reset_request.otp_code != otp_code:
-        return jsonify({"message": "Invalid OTP"}), 400
-
-    return jsonify({"message": "OTP verified. You can now reset your password"}), 200
-
-
 @auth_bp.route('/api/auth/reset-password', methods=['POST'])
 def reset_password():
     """
@@ -804,59 +720,53 @@ def reset_password():
     description: >
         Allows a user (buyer or vendor) to reset their password using a valid OTP
         sent to their email. The OTP must be verified and not expired.
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - email
-              - otp
-              - new_password
-            properties:
-              email:
-                type: string
-                format: email
-                example: user@example.com
-              otp:
-                type: string
-                example: "123456"
-              new_password:
-                type: string
-                format: password
-                example: StrongPassw0rd!
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - email
+            - otp
+            - new_password
+          properties:
+            email:
+              type: string
+              format: email
+              example: user@example.com
+            otp:
+              type: string
+              example: "123456"
+            new_password:
+              type: string
+              format: password
+              example: StrongPassw0rd!
     responses:
       200:
         description: Password reset successful
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: Password reset successful
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Password reset successful
       400:
         description: Invalid request or OTP expired
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: OTP expired
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: OTP expired
       404:
         description: No reset request or user account found
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: No reset request found
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: No reset request found
     """
     data = request.get_json()
     email = data.get("email")
@@ -1155,8 +1065,6 @@ def upload_profile_pic():
     claims = get_jwt()
     role = claims.get("role")
 
-
-    # Check in the correct model
     if role == "buyer":
         user = Buyers.query.get(user_id)
     elif role == "vendor":
@@ -1172,28 +1080,29 @@ def upload_profile_pic():
 
     file = request.files["profile_pic"]
 
-    try:
-        upload_result = cloudinary.uploader.upload(
-            file,
-            folder="dcraft/profile_pics",
-            public_id=f"{role}_{user.id}_profile",
-            overwrite=True,
-            transformation={"width": 300, "height": 300, "crop": "fill"},
-        )
+    if file.filename == "":
+        return jsonify({"message": "No selected file"}), 400
 
-        profile_pic_url = upload_result.get("secure_url")
-        if not profile_pic_url:
-            return jsonify({"message": "Cloudinary upload failed"}), 500
+    if file and allowed_file(file.filename):
+        filename = secure_filename(f"{role}_{user.id}_profile.{file.filename.rsplit('.', 1)[1].lower()}")
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
 
-        user.profile_pic = profile_pic_url
-        db.session.commit()
+        try:
+            file.save(file_path)
 
-        return jsonify({"profile_pic_url": profile_pic_url}), 200
+            # Public URL (served from /images)
+            profile_pic_url = f"https://api.bizengo.com/images/{filename}"
 
-    except Exception as e:
-        print("Cloudinary upload error:", e)
-        return jsonify({"message": "Failed to upload image"}), 500
+            user.profile_pic = profile_pic_url
+            db.session.commit()
 
+            return jsonify({"profile_pic_url": profile_pic_url}), 200
+
+        except Exception as e:
+            print("File upload error:", e)
+            return jsonify({"message": "Failed to upload image"}), 500
+
+    return jsonify({"message": "Invalid file type"}), 400
 
 @auth_bp.route('/api/user/kyc-status', methods=['GET'])
 @jwt_required()
