@@ -1,16 +1,20 @@
 #text/x-generic auth.py ( Python script, UTF-8 Unicode text executable, with CRLF line terminators )
+#text/x-generic auth.py ( Python script, UTF-8 Unicode text executable, with CRLF line terminators )
 from core.imports import Blueprint, jsonify, request, render_template, create_access_token, jwt_required, secrets, uuid, get_jwt_identity, get_jwt, requests, random, string, cloudinary, os, load_dotenv, datetime, Message, timedelta, IntegrityError
 from core.config import Config
 from core.extensions import db, bcrypt, mail
-from models.userModel import Buyers, Vendors, PendingBuyer, PendingVendor, Admins
+import traceback
+from models.userModel import Buyers, Vendors, PendingBuyer, PendingVendor, Admins, PasswordResetToken
 from models.vendorModels import Storefront
 from werkzeug.utils import secure_filename
+from sqlalchemy import func
 load_dotenv() 
+
 
 auth_bp = Blueprint('auth', __name__)
 
-UPLOAD_FOLDER = "/var/www/api.bizengo.com/images"
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
+UPLOAD_FOLDER = '/home/realvlcj/api.bizengo.com/images'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -88,7 +92,7 @@ def seed_demo_vendor():
             business_type="Retail",
             email="demo@vendor.com",
             phone="08012345678",
-            password=hashed_password,  # ✅ store bcrypt hash
+            password=hashed_password,
             state="Lagos",
             country="Nigeria",
             referral_code="DEMO123"
@@ -104,7 +108,7 @@ def seed_demo_vendor():
 def seed_demo_buyer():
     buyer = Buyers.query.filter_by(email="demo@buyer.com").first()
     if not buyer:
-        raw_password = "password123"  # demo login password
+        raw_password = "password123"
         hashed_password = bcrypt.generate_password_hash(raw_password).decode('utf-8')
 
         buyer = Buyers(
@@ -127,83 +131,6 @@ def seed_demo_buyer():
 
 @auth_bp.route('/api/auth/signup/buyer', methods=['POST'])
 def signup_buyer():
-    """
-    Buyer Signup
-    ---
-    tags:
-      - Authentication
-    summary: Register a new buyer account
-    description: >
-      This endpoint registers a new buyer with a name, email, and phone number.  
-      Upon successful registration, the buyer is assigned a unique referral code.  
-      If state and/or country are not provided, they will be automatically detected  
-      from the user's IP address. If a referral code is provided, it will be recorded as the referrer.
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        description: Buyer registration data
-        schema:
-          type: object
-          required:
-            - name
-            - email
-            - phone
-            - password
-          properties:
-            name:
-              type: string
-              example: johndoe
-            email:
-              type: string
-              example: example@example.com
-            phone:
-              type: string
-              example: "08012345678"
-            password:
-              type: string
-              example: pass123
-            state:
-              type: string
-              example: Lagos
-              description: Optional. If not provided, will be determined from IP
-            country:
-              type: string
-              example: Nigeria
-              description: Optional. If not provided, will be determined from IP
-            referral_code:
-              type: string
-              example: "ABCD1234"
-              description: Optional referral code from another buyer
-    responses:
-      201:
-        description: Buyer created successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Buyer created successfully
-            access_token:
-              type: string
-              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-            referral_code:
-              type: string
-              example: XYZ789AB
-              description: The referral code assigned to the new buyer
-            state:
-              type: string
-              example: Lagos
-            country:
-              type: string
-              example: Nigeria
-      400:
-        description: Missing required fields
-      409:
-        description: Email already exists
-    """
 
     data = request.get_json()
     name = data.get('name')
@@ -256,95 +183,6 @@ def signup_buyer():
 
 @auth_bp.route('/api/auth/signup/vendor', methods=['POST'])
 def signup_vendor():
-    """
-    Vendor Signup
-    ---
-    tags:
-      - Authentication
-    summary: Register a new vendor account
-    description: >
-      This endpoint registers a new vendor with personal and business details.  
-      Upon successful registration, the vendor is assigned a unique referral code.  
-      If state and/or country are not provided, they will be automatically detected  
-      from the user's IP address. If a referral code is provided, it will be recorded as the referrer.
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        description: Vendor registration data
-        schema:
-          type: object
-          required:
-            - firstname
-            - lastname
-            - business_name
-            - business_type
-            - email
-            - phone
-            - password
-          properties:
-            firstname:
-              type: string
-              example: John
-            lastname:
-              type: string
-              example: Doe
-            business_name:
-              type: string
-              example: Doe Enterprises
-            business_type:
-              type: string
-              example: Retail
-            email:
-              type: string
-              example: vendor@example.com
-            phone:
-              type: string
-              example: "08012345678"
-            password:
-              type: string
-              example: pass123
-            state:
-              type: string
-              example: Lagos
-              description: Optional. If not provided, will be determined from IP
-            country:
-              type: string
-              example: Nigeria
-              description: Optional. If not provided, will be determined from IP
-            referral_code:
-              type: string
-              example: "ABCD1234"
-              description: Optional referral code from another vendor
-    responses:
-      201:
-        description: Vendor created successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Vendor created successfully
-            access_token:
-              type: string
-              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-            referral_code:
-              type: string
-              example: XYZ789AB
-              description: The referral code assigned to the new vendor
-            state:
-              type: string
-              example: Lagos
-            country:
-              type: string
-              example: Nigeria
-      400:
-        description: Missing required fields
-      409:
-        description: Email already exists
-    """
     data = request.get_json()
     firstname = data.get('firstname')
     lastname = data.get('lastname')
@@ -404,68 +242,7 @@ def signup_vendor():
 
 @auth_bp.route('/api/auth/verify-email', methods=['POST'])
 def verify_email():
-    """
-    Verify Email with OTP
-    ---
-    tags:
-      - Authentication
-    summary: Verify a pending user account using OTP
-    description: >
-      This endpoint verifies a buyer or vendor account that has registered but not yet confirmed.  
-      The user must provide the email used during signup and the OTP code sent to that email.  
-      On successful verification, the account is activated and an access token is returned.
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        description: Email and OTP for verification
-        schema:
-          type: object
-          required:
-            - email
-            - otp
-          properties:
-            email:
-              type: string
-              example: vendor@example.com
-            otp:
-              type: string
-              example: "123456"
-    responses:
-      200:
-        description: Email verified successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Email verified successfully
-            access_token:
-              type: string
-              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-            role:
-              type: string
-              example: vendor
-              description: The role of the verified user (buyer or vendor)
-      400:
-        description: Invalid or expired OTP
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Invalid OTP
-      404:
-        description: No pending registration found for this account
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: No pending registration found for this account
-    """
+    
     data = request.get_json()
     email = data.get("email")
     otp_code = data.get("otp")
@@ -555,37 +332,7 @@ def verify_email():
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
-    """
-    User/Admin Login
-    ---
-    tags:
-      - Authentication
-    summary: Authenticate user/admin and get JWT
-    description: Logs in a user (Buyer, Vendor, or Admin) using their email and password, returning a JWT access token if successful.
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - email
-            - password
-          properties:
-            email:
-              type: string
-            password:
-              type: string
-    responses:
-      200:
-        description: Login successful
-      400:
-        description: Missing email or password
-      401:
-        description: Invalid credentials
-    """
+    
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
@@ -628,176 +375,110 @@ def login():
             "role": role
         }
     }), 200
-
-
-@auth_bp.route('/api/auth/request-password-reset', methods=['POST'])
-def request_password_reset():
-    """
-    Request password reset OTP
-    ---
-    tags:
-      - Authentication
-    summary: Request password reset
-    description: >
-        Allows a registered user (buyer or vendor) to request a password reset.
-        An OTP will be sent to the provided email if the account exists.
-        The OTP will expire in 10 minutes.
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - email
-          properties:
-            email:
-              type: string
-              format: email
-              example: user@example.com
-    responses:
-      200:
-        description: OTP sent successfully
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Password reset OTP sent to your email
-      400:
-        description: Missing required field (email)
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Email is required
-      404:
-        description: No account found for the provided email
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: No account found with this email
-    """
+    
+@auth_bp.route('/api/auth/resend-verification', methods=['POST'])
+def resend_verification():
     data = request.get_json()
-    email = data.get("email")
+    email = data.get('email')
 
     if not email:
         return jsonify({"message": "Email is required"}), 400
 
-    # Check if user exists in Buyers or Vendors
-    user = Buyers.query.filter_by(email=email).first() or Vendors.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({"message": "No account found with this email"}), 404
+    pending_buyer = PendingBuyer.query.filter_by(email=email).first()
+    pending_vendor = None if pending_buyer else PendingVendor.query.filter_by(email=email).first()
 
-    # Generate OTP
+    if not pending_buyer and not pending_vendor:
+        return jsonify({"message": "No pending account found for this email"}), 404
+
     otp_code = str(random.randint(100000, 999999))
     otp_expiry = datetime.utcnow() + timedelta(minutes=10)
 
-    # Save to a dedicated password reset table OR reuse PendingBuyer/Vendor
-    reset = PendingBuyer(
-        email=email,
-        otp_code=otp_code,
-        otp_expires_at=otp_expiry
-    )
-    db.session.add(reset)
+    if pending_buyer:
+        pending_buyer.otp_code = otp_code
+        pending_buyer.otp_expires_at = otp_expiry
+        db.session.commit()
+        send_otp_email(email, otp_code)
+
+    elif pending_vendor:
+        pending_vendor.otp_code = otp_code
+        pending_vendor.otp_expires_at = otp_expiry
+        db.session.commit()
+        send_otp_email(email, otp_code)
+
+    return jsonify({"message": "A new verification code has been sent to your email"}), 200
+
+
+
+@auth_bp.route('/api/auth/request-password-reset', methods=['POST'])
+def request_password_reset():
+    data = request.get_json()
+    email = data.get("email")
+    
+    if not email:
+        return jsonify({"message": "Email is required"}), 400
+    email = email.strip().lower()
+
+    user_exists = Buyers.query.filter(func.lower(Buyers.email) == email).first() or \
+                  Vendors.query.filter(func.lower(Vendors.email) == email).first()
+
+    if not user_exists:
+        return jsonify({"message": "If an account with this email exists, a reset OTP has been sent."}), 200
+
+    otp_code = str(random.randint(100000, 999999))
+    otp_expiry = datetime.utcnow() + timedelta(minutes=360)
+
+    reset_token = PasswordResetToken.query.filter_by(email=email).first()
+    if not reset_token:
+        reset_token = PasswordResetToken(email=email)
+    
+    reset_token.otp_code = otp_code
+    reset_token.expires_at = otp_expiry
+    
+    db.session.add(reset_token)
     db.session.commit()
 
     send_otp_email(email, otp_code, purpose="password_reset")
-    return jsonify({"message": "Password reset OTP sent to your email"}), 200
+    return jsonify({"message": "If an account with this email exists, a reset OTP has been sent."}), 200
 
 
 @auth_bp.route('/api/auth/reset-password', methods=['POST'])
 def reset_password():
-    """
-    Reset user password with OTP verification
-    ---
-    tags:
-      - Authentication
-    summary: Reset password
-    description: >
-        Allows a user (buyer or vendor) to reset their password using a valid OTP
-        sent to their email. The OTP must be verified and not expired.
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - email
-            - otp
-            - new_password
-          properties:
-            email:
-              type: string
-              format: email
-              example: user@example.com
-            otp:
-              type: string
-              example: "123456"
-            new_password:
-              type: string
-              format: password
-              example: StrongPassw0rd!
-    responses:
-      200:
-        description: Password reset successful
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: Password reset successful
-      400:
-        description: Invalid request or OTP expired
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: OTP expired
-      404:
-        description: No reset request or user account found
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: No reset request found
-    """
     data = request.get_json()
-    email = data.get("email")
-    otp_code = data.get("otp")
     new_password = data.get("new_password")
+    otp_code_from_request = str(data.get("otp")) if data.get("otp") else None
+    email = data.get("email")
 
-    if not all([email, otp_code, new_password]):
+    if not email or not otp_code_from_request or not new_password:
         return jsonify({"message": "Email, OTP, and new password are required"}), 400
 
-    reset_request = PendingBuyer.query.filter_by(email=email).first()
+    email = email.strip().lower()
 
-    if not reset_request:
-        return jsonify({"message": "No reset request found"}), 404
+    reset_token = (
+        PasswordResetToken.query
+        .filter(PasswordResetToken.email == email)
+        .order_by(PasswordResetToken.created_at.desc())
+        .first()
+    )
 
-    if datetime.utcnow() > reset_request.otp_expires_at:
-        db.session.delete(reset_request)
+    if not reset_token or str(reset_token.otp_code) != otp_code_from_request:
+        return jsonify({"message": "Invalid OTP"}), 400
+
+    if datetime.utcnow() > reset_token.expires_at:
+        db.session.delete(reset_token)
         db.session.commit()
         return jsonify({"message": "OTP expired"}), 400
 
-    if reset_request.otp_code != otp_code:
-        return jsonify({"message": "Invalid OTP"}), 400
-
-    # Update user password
-    user = Buyers.query.filter_by(email=email).first() or Vendors.query.filter_by(email=email).first()
+    user = (
+        Buyers.query.filter(Buyers.email == email).first() or
+        Vendors.query.filter(Vendors.email == email).first()
+    )
     if not user:
         return jsonify({"message": "Account not found"}), 404
 
     hashed_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
     user.password = hashed_password
 
-    db.session.delete(reset_request)
+    db.session.delete(reset_token)
     db.session.commit()
 
     return jsonify({"message": "Password reset successful"}), 200
@@ -806,27 +487,6 @@ def reset_password():
 @auth_bp.route('/api/user/profile', methods=['GET'])
 @jwt_required()
 def profile():
-    """
-    Get current user profile
-    ---
-    tags:
-      - User
-    security:
-      - Bearer: []
-    parameters:
-      - name: Authorization
-        in: header
-        description: 'JWT token as: Bearer <your_token>'
-        required: true
-        schema:
-          type: string
-          example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-    responses:
-      200:
-        description: User profile retrieved successfully
-      404:
-        description: User not found
-    """
     user_id = get_jwt_identity()
 
     claims = get_jwt()
@@ -849,6 +509,7 @@ def profile():
             "country": user.country,
             "referral_code": user.referral_code,
             "referred_by": user.referred_by,
+            "profile_pic": user.profile_pic,
         }
 
     elif user_type == "vendor":
@@ -870,6 +531,7 @@ def profile():
             "kyc_status": user.kyc_status,
             "referral_code": user.referral_code,
             "referred_by": user.referred_by,
+            "profile_pic": user.profile_pic,
         }
 
     else:
@@ -1005,92 +667,37 @@ def update_profile_details():
 @auth_bp.route("/api/upload-profile-pic", methods=["POST"])
 @jwt_required()
 def upload_profile_pic():
-    """
-    Upload or update profile picture (Buyer or Vendor)
-    ---
-    tags:
-      - Authentication
-    summary: Upload profile picture for authenticated user
-    description: Allows a logged-in Buyer or Vendor to upload or update their profile picture.
-    security:
-      - Bearer: []
-    consumes:
-      - multipart/form-data
-    parameters:
-      - name: Authorization
-        in: header
-        description: "JWT token as: Bearer <your_token>"
-        required: true
-        type: string
-      - name: profile_pic
-        in: formData
-        description: "Profile picture file (jpg, png, etc.)"
-        required: true
-        type: file
-    responses:
-      200:
-        description: Profile picture uploaded successfully
-        schema:
-          type: object
-          properties:
-            profile_pic_url:
-              type: string
-              example: "https://res.cloudinary.com/demo/image/upload/v1234567890/dcraft/profile_pics/user_1_profile.jpg"
-      400:
-        description: No image uploaded
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: "No image uploaded"
-      404:
-        description: User not found
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: "User not found"
-      500:
-        description: Upload failed (Cloudinary or server error)
-        schema:
-          type: object
-          properties:
-            message:
-              type: string
-              example: "Failed to upload image"
-    """
     user_id = get_jwt_identity()
     claims = get_jwt()
     role = claims.get("role")
 
+    user = None
     if role == "buyer":
         user = Buyers.query.get(user_id)
     elif role == "vendor":
         user = Vendors.query.get(user_id)
-    else:
-        return jsonify({"message": "User not found"}), 404
-
+    
     if not user:
         return jsonify({"message": "User not found"}), 404
 
     if "profile_pic" not in request.files:
-        return jsonify({"message": "No image uploaded"}), 400
+        return jsonify({"message": "No image part in the request"}), 400
 
     file = request.files["profile_pic"]
 
     if file.filename == "":
         return jsonify({"message": "No selected file"}), 400
-
+        
     if file and allowed_file(file.filename):
-        filename = secure_filename(f"{role}_{user.id}_profile.{file.filename.rsplit('.', 1)[1].lower()}")
+        original_ext = file.filename.rsplit('.', 1)[1].lower()
+        filename = secure_filename(f"{role}_{user.id}_profile.{original_ext}")
         file_path = os.path.join(UPLOAD_FOLDER, filename)
 
         try:
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+            
             file.save(file_path)
 
-            # Public URL (served from /images)
             profile_pic_url = f"https://api.bizengo.com/images/{filename}"
 
             user.profile_pic = profile_pic_url
@@ -1100,9 +707,11 @@ def upload_profile_pic():
 
         except Exception as e:
             print("File upload error:", e)
-            return jsonify({"message": "Failed to upload image"}), 500
+            traceback.print_exc()
+            return jsonify({"message": "Failed to save image on server"}), 500
 
-    return jsonify({"message": "Invalid file type"}), 400
+    return jsonify({"message": "File type not allowed"}), 400
+
 
 @auth_bp.route('/api/user/kyc-status', methods=['GET'])
 @jwt_required()

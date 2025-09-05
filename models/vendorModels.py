@@ -11,7 +11,6 @@ class Products(db.Model):
     product_name = db.Column(db.String(150), nullable=False)
     product_price = db.Column(db.Integer, nullable=False)
     description = db.Column(db.Text, nullable=False)
-    product_images = db.Column(JSON, nullable=True)
     condition = db.Column(db.String(100), nullable=True)
     date_posted = db.Column(db.DateTime, default=datetime.utcnow)
     sold_date = db.Column(db.DateTime)
@@ -24,6 +23,20 @@ class Products(db.Model):
 
     vendor_id = db.Column(db.Integer, db.ForeignKey('vendors.id'), nullable=False)
     vendor = db.relationship('Vendors', backref='products')
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProductImages(db.Model):
+    __tablename__ = "product_images"
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
+    vendor_id = db.Column(db.Integer, db.ForeignKey('vendors.id'), nullable=False)  # who uploaded
+    image_url = db.Column(db.String(500), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    product = db.relationship('Products', backref='images')
+    vendor = db.relationship('Vendors')
 
 
 class Storefront(db.Model):

@@ -20,6 +20,7 @@ class Buyers(db.Model):
     role = db.Column(db.String(200), nullable=False)
     referral_code = db.Column(db.String(200), nullable=False)
     referred_by = db.Column(db.String(200), nullable=True)
+    profile_pic = db.Column(db.String(500), nullable=True)
 
     state = db.Column(db.String(200))
     country = db.Column(db.String(200))
@@ -34,6 +35,7 @@ class Vendors(db.Model):
     email = db.Column(db.String(100), unique=True, nullable=False, index=True)
     phone = db.Column(db.String(20), nullable=True)
     password = db.Column(db.String(200), nullable=False)
+    profile_pic = db.Column(db.String(500), nullable=True)
 
     state = db.Column(db.String(200))
     country = db.Column(db.String(200))
